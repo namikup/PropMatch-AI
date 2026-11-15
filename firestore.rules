@@ -1,0 +1,61 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Multi-agent security model:
+    // Every agent-owned record must have an ownerId matching request.auth.uid.
+    // Users cannot read, query, update, or delete records belonging to other agents.
+    // Changing document ownership (ownerId) is forbidden.
+
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /projects/{projectId} {
+      allow read, delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
+      allow update: if request.auth != null && resource.data.ownerId == request.auth.uid && request.resource.data.ownerId == resource.data.ownerId;
+    }
+
+    match /buyers/{buyerId} {
+      allow read, delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
+      allow update: if request.auth != null && resource.data.ownerId == request.auth.uid && request.resource.data.ownerId == resource.data.ownerId;
+    }
+
+    match /leads/{leadId} {
+      allow read, delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
+      allow update: if request.auth != null && resource.data.ownerId == request.auth.uid && request.resource.data.ownerId == resource.data.ownerId;
+    }
+
+    match /audienceSegments/{segmentId} {
+      allow read, delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
+      allow update: if request.auth != null && resource.data.ownerId == request.auth.uid && request.resource.data.ownerId == resource.data.ownerId;
+    }
+
+    match /matches/{matchId} {
+      allow read, delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
+      allow update: if request.auth != null && resource.data.ownerId == request.auth.uid && request.resource.data.ownerId == resource.data.ownerId;
+    }
+
+    match /campaigns/{campaignId} {
+      allow read, delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
+      allow update: if request.auth != null && resource.data.ownerId == request.auth.uid && request.resource.data.ownerId == resource.data.ownerId;
+    }
+
+    match /followups/{followupId} {
+      allow read, delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
+      allow update: if request.auth != null && resource.data.ownerId == request.auth.uid && request.resource.data.ownerId == resource.data.ownerId;
+    }
+
+    match /acquisitionSignals/{signalId} {
+      // Signals are public market demand reads, writable only by system
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+  }
+}
