@@ -28,6 +28,10 @@ class AppStateProvider extends ChangeNotifier {
   // AI Audience Discovery
   List<AudienceSegmentModel> _audienceSegments = [];
   bool _isDiscoveringAudience = false;
+  Map<String, List<GeographicTarget>> _geoStrategies = {}; // segmentId -> targets
+  Map<String, SegmentMarketingContent> _segmentMarketingContent = {}; // segmentId -> content
+  bool _isGeneratingSegmentContent = false;
+  String? _generatingContentForSegmentId;
 
   // AI Buyer Matching
   List<MatchModel> _matches = [];
@@ -69,6 +73,10 @@ class AppStateProvider extends ChangeNotifier {
 
   List<AudienceSegmentModel> get audienceSegments => _audienceSegments;
   bool get isDiscoveringAudience => _isDiscoveringAudience;
+  Map<String, List<GeographicTarget>> get geoStrategies => _geoStrategies;
+  Map<String, SegmentMarketingContent> get segmentMarketingContent => _segmentMarketingContent;
+  bool get isGeneratingSegmentContent => _isGeneratingSegmentContent;
+  String? get generatingContentForSegmentId => _generatingContentForSegmentId;
 
   List<MatchModel> get matches => _matches;
   bool get isMatching => _isMatching;
@@ -136,6 +144,8 @@ class AppStateProvider extends ChangeNotifier {
     _audienceSegments = [];
     _matches = [];
     _generatedMarketingContent = null;
+    _geoStrategies = {};
+    _segmentMarketingContent = {};
     notifyListeners();
   }
 
@@ -197,16 +207,42 @@ class AppStateProvider extends ChangeNotifier {
     if (targetProject == null) return;
 
     _isDiscoveringAudience = true;
+    _geoStrategies = {};
+    _segmentMarketingContent = {};
     notifyListeners();
 
     // Fast asynchronous simulation for sleek UI responsiveness
     await Future.delayed(const Duration(milliseconds: 600));
 
     _audienceSegments = AIService.discoverAudienceSegments(targetProject);
+
+    // Auto-generate geographic strategies for all segments
+    for (final seg in _audienceSegments) {
+      _geoStrategies[seg.id] = AIService.generateGeographicStrategy(targetProject, seg);
+    }
+
     if (_audienceSegments.isNotEmpty) {
       _selectedAudienceForMarketing = _audienceSegments.first;
     }
     _isDiscoveringAudience = false;
+    notifyListeners();
+  }
+
+  /// Generates platform-specific marketing content for a single audience segment.
+  Future<void> generateSegmentMarketing(AudienceSegmentModel segment) async {
+    if (_selectedProject == null) return;
+
+    _isGeneratingSegmentContent = true;
+    _generatingContentForSegmentId = segment.id;
+    notifyListeners();
+
+    await Future.delayed(const Duration(milliseconds: 400));
+
+    _segmentMarketingContent[segment.id] =
+        AIService.generateSegmentMarketingContent(_selectedProject!, segment);
+
+    _isGeneratingSegmentContent = false;
+    _generatingContentForSegmentId = null;
     notifyListeners();
   }
 

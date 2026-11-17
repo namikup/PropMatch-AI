@@ -19,6 +19,13 @@ class AudienceSegmentModel {
   final String reasoning;
   final DateTime createdAt;
 
+  // Enhanced fields for AI Audience Discovery v2
+  final String marketingAngle; // Strategic positioning for this segment
+  final List<String> scoringFactors; // Breakdown of what drove the suitability score
+  final String ageRange; // e.g. "26–36"
+  final String incomeRange; // e.g. "RM7,000–RM12,000/month"
+  final List<GeographicTarget> geographicTargets; // Multi-state targeting
+
   AudienceSegmentModel({
     String? id,
     required this.projectId,
@@ -36,6 +43,11 @@ class AudienceSegmentModel {
     required this.suitabilityScore,
     required this.rank,
     required this.reasoning,
+    this.marketingAngle = '',
+    this.scoringFactors = const [],
+    this.ageRange = '',
+    this.incomeRange = '',
+    this.geographicTargets = const [],
     DateTime? createdAt,
   })  : id = id ?? const Uuid().v4(),
         createdAt = createdAt ?? DateTime.now();
@@ -58,6 +70,11 @@ class AudienceSegmentModel {
       'suitabilityScore': suitabilityScore,
       'rank': rank,
       'reasoning': reasoning,
+      'marketingAngle': marketingAngle,
+      'scoringFactors': scoringFactors,
+      'ageRange': ageRange,
+      'incomeRange': incomeRange,
+      'geographicTargets': geographicTargets.map((g) => g.toMap()).toList(),
       'createdAt': createdAt.toIso8601String(),
     };
   }
@@ -81,9 +98,48 @@ class AudienceSegmentModel {
       suitabilityScore: (map['suitabilityScore'] as num?)?.toDouble() ?? 0.0,
       rank: (map['rank'] as num?)?.toInt() ?? 1,
       reasoning: map['reasoning'] as String? ?? '',
+      marketingAngle: map['marketingAngle'] as String? ?? '',
+      scoringFactors: List<String>.from(map['scoringFactors'] ?? []),
+      ageRange: map['ageRange'] as String? ?? '',
+      incomeRange: map['incomeRange'] as String? ?? '',
+      geographicTargets: (map['geographicTargets'] as List?)
+              ?.map((g) => GeographicTarget.fromMap(g))
+              .toList() ??
+          [],
       createdAt: map['createdAt'] != null
           ? DateTime.tryParse(map['createdAt']) ?? DateTime.now()
           : DateTime.now(),
+    );
+  }
+}
+
+/// Represents a geographic market from which this audience segment could be sourced.
+class GeographicTarget {
+  final String state;
+  final String rationale; // Why buyers from this state would be interested
+  final double relevanceScore; // 0-100
+  final List<String> marketingApproach; // How to reach them
+
+  GeographicTarget({
+    required this.state,
+    required this.rationale,
+    required this.relevanceScore,
+    this.marketingApproach = const [],
+  });
+
+  Map<String, dynamic> toMap() => {
+        'state': state,
+        'rationale': rationale,
+        'relevanceScore': relevanceScore,
+        'marketingApproach': marketingApproach,
+      };
+
+  factory GeographicTarget.fromMap(Map<String, dynamic> map) {
+    return GeographicTarget(
+      state: map['state'] as String? ?? '',
+      rationale: map['rationale'] as String? ?? '',
+      relevanceScore: (map['relevanceScore'] as num?)?.toDouble() ?? 0.0,
+      marketingApproach: List<String>.from(map['marketingApproach'] ?? []),
     );
   }
 }
