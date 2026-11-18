@@ -205,7 +205,11 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
                         onChanged: (id) {
                           if (id != null) {
                             final p = appState.projects.firstWhere((proj) => proj.id == id);
+                            final wasDiscovered = appState.audienceSegments.isNotEmpty;
                             appState.selectProject(p);
+                            if (wasDiscovered) {
+                              appState.runAudienceDiscovery(p);
+                            }
                           }
                         },
                       ),
