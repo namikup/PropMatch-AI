@@ -71,7 +71,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
               const SizedBox(width: AppTheme.spacingSm),
               Wrap(
                 spacing: 8,
-                children: ['All', 'Penang', 'Kedah'].map((state) {
+                children: ['All', ...{ 'Penang', 'Kedah', ...appState.projects.map((p) => p.state) }].map((state) {
                   final isSelected = _selectedStateFilter == state;
                   return ChoiceChip(
                     label: Text(state),
@@ -87,11 +87,81 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           const SizedBox(height: AppTheme.spacingLg),
 
           // Projects Grid
-          if (filteredProjects.isEmpty) ...[
+          if (appState.projects.isEmpty) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingXxl, vertical: 60),
+              decoration: BoxDecoration(
+                color: AppTheme.surface,
+                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                border: Border.all(color: AppTheme.cardBorder),
+              ),
+              alignment: Alignment.center,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary.withValues(alpha: 0.08),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.domain_add_outlined,
+                      size: 38,
+                      color: AppTheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: AppTheme.spacingLg),
+                  Text(
+                    'No Property Projects Registered Yet',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: AppTheme.spacingSm),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 520),
+                    child: Text(
+                      'Add your first developer development or sub-sale listing to unlock AI Audience Discovery, 5-Factor Buyer Matching, and Trilingual Campaign Generation.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AppTheme.textSecondary,
+                            height: 1.5,
+                          ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  const SizedBox(height: AppTheme.spacingXl),
+                  ElevatedButton.icon(
+                    onPressed: () => _showAddProjectDialog(context, appState),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Add Your First Project'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else if (filteredProjects.isEmpty) ...[
             Container(
               padding: const EdgeInsets.all(AppTheme.spacingXxl),
               alignment: Alignment.center,
-              child: const Text('No projects found matching the filter.'),
+              child: Column(
+                children: [
+                  const Icon(Icons.filter_alt_off_outlined, size: 48, color: AppTheme.textHint),
+                  const SizedBox(height: AppTheme.spacingMd),
+                  Text(
+                    'No projects match the selected state filter "$_selectedStateFilter".',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: AppTheme.spacingSm),
+                  TextButton(
+                    onPressed: () => setState(() => _selectedStateFilter = 'All'),
+                    child: const Text('Clear State Filter'),
+                  ),
+                ],
+              ),
             ),
           ] else ...[
             LayoutBuilder(
@@ -303,7 +373,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                           IconButton(
                             icon: const Icon(Icons.delete_outline, size: 18, color: AppTheme.error),
                             tooltip: 'Delete Project',
-                            onPressed: () => appState.deleteProject(project.id),
+                            onPressed: () => _confirmDeleteProject(context, appState, project),
                           ),
                         ],
                       ),
@@ -312,6 +382,68 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                 ],
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteProject(BuildContext context, AppStateProvider appState, ProjectModel project) {
+    final hasActiveLeads = appState.hasActiveLeadsForProject(project.id);
+    final hasFollowups = appState.hasFollowupsForProject(project.id);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Property Project', style: TextStyle(fontWeight: FontWeight.w700)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Are you sure you want to delete "${project.name}"? This action cannot be undone.'),
+            if (hasActiveLeads || hasFollowups) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppTheme.warning.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppTheme.warning.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, color: AppTheme.warning, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Notice: This project has ${hasActiveLeads ? "active leads" : ""}${(hasActiveLeads && hasFollowups) ? " and " : ""}${hasFollowups ? "pending follow-ups" : ""}.',
+                        style: const TextStyle(fontSize: 12, color: AppTheme.warning, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.error,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              appState.deleteProject(project.id);
+              Navigator.of(ctx).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Deleted "${project.name}"')),
+              );
+            },
+            child: const Text('Delete'),
           ),
         ],
       ),
@@ -331,6 +463,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     String stateVal = 'Penang';
     String propTypeVal = 'Condominium';
     String purposeVal = 'Own Stay & Investment';
+    String? validationError;
 
     showDialog(
       context: context,
@@ -342,7 +475,32 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (validationError != null) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: AppTheme.error.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: AppTheme.error.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error_outline, color: AppTheme.error, size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              validationError!,
+                              style: const TextStyle(color: AppTheme.error, fontSize: 12, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   TextField(
                     controller: nameCtrl,
                     decoration: const InputDecoration(labelText: 'Project Name *', hintText: 'e.g. Vertu Residences'),
@@ -462,23 +620,63 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
             ),
             ElevatedButton(
               onPressed: () {
-                if (nameCtrl.text.isEmpty || locCtrl.text.isEmpty) return;
+                final name = nameCtrl.text.trim();
+                final loc = locCtrl.text.trim();
+                if (name.isEmpty) {
+                  setDialogState(() => validationError = 'Project name is required.');
+                  return;
+                }
+                if (loc.isEmpty) {
+                  setDialogState(() => validationError = 'Location / Area is required.');
+                  return;
+                }
+
+                final minPrice = double.tryParse(priceMinCtrl.text);
+                final maxPrice = double.tryParse(priceMaxCtrl.text);
+                if (minPrice == null || minPrice <= 0) {
+                  setDialogState(() => validationError = 'Starting Price must be a positive number.');
+                  return;
+                }
+                if (maxPrice == null || maxPrice <= 0) {
+                  setDialogState(() => validationError = 'Maximum Price must be a positive number.');
+                  return;
+                }
+                if (minPrice > maxPrice) {
+                  setDialogState(() => validationError = 'Starting Price (RM${minPrice.toStringAsFixed(0)}) cannot exceed Maximum Price (RM${maxPrice.toStringAsFixed(0)}).');
+                  return;
+                }
+
+                final beds = int.tryParse(bedsCtrl.text);
+                final baths = int.tryParse(bathsCtrl.text);
+                final sqft = double.tryParse(sqftCtrl.text);
+                if (beds == null || beds <= 0) {
+                  setDialogState(() => validationError = 'Bedrooms must be at least 1.');
+                  return;
+                }
+                if (baths == null || baths <= 0) {
+                  setDialogState(() => validationError = 'Bathrooms must be at least 1.');
+                  return;
+                }
+                if (sqft == null || sqft <= 0) {
+                  setDialogState(() => validationError = 'Built-up Area must be greater than 0.');
+                  return;
+                }
 
                 final newProject = ProjectModel(
                   ownerId: appState.currentOwnerId,
-                  name: nameCtrl.text.trim(),
+                  name: name,
                   developer: devCtrl.text.trim().isEmpty ? 'Private Developer' : devCtrl.text.trim(),
-                  location: locCtrl.text.trim(),
+                  location: loc,
                   state: stateVal,
                   propertyType: propTypeVal,
-                  startingPrice: double.tryParse(priceMinCtrl.text) ?? 450000,
-                  maximumPrice: double.tryParse(priceMaxCtrl.text) ?? 600000,
-                  bedrooms: int.tryParse(bedsCtrl.text) ?? 3,
-                  bathrooms: int.tryParse(bathsCtrl.text) ?? 2,
-                  builtUpArea: double.tryParse(sqftCtrl.text) ?? 950,
+                  startingPrice: minPrice,
+                  maximumPrice: maxPrice,
+                  bedrooms: beds,
+                  bathrooms: baths,
+                  builtUpArea: sqft,
                   purpose: purposeVal,
                   description: descCtrl.text.trim().isEmpty
-                      ? 'Modern high-yield property project located in $locCtrl.'
+                      ? 'Modern high-yield property project located in $loc.'
                       : descCtrl.text.trim(),
                 );
 

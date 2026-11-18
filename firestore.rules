@@ -1,61 +1,193 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Multi-agent security model:
-    // Every agent-owned record must have an ownerId matching request.auth.uid.
-    // Users cannot read, query, update, or delete records belonging to other agents.
-    // Changing document ownership (ownerId) is forbidden.
 
+    // =========================================================================
+    // GLOBAL HELPER FUNCTIONS
+    // =========================================================================
+
+    /// Verifies if the incoming request is from an authenticated user.
+    function isAuthenticated() {
+      return request.auth != null && request.auth.uid != null;
+    }
+
+    /// Verifies if the authenticated user matches the given UID.
+    function isUser(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    /// Verifies if the authenticated user is the designated owner of an existing resource.
+    function isResourceOwner() {
+      return isAuthenticated() && resource != null && resource.data.ownerId == request.auth.uid;
+    }
+
+    /// Verifies if the incoming write assigns ownership to the authenticated user.
+    function isAssigningSelfAsOwner() {
+      return isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
+    }
+
+    /// Ensures that the ownerId field cannot be modified during updates (Anti-Hijacking).
+    function isOwnerImmutable() {
+      return request.resource.data.ownerId == resource.data.ownerId;
+    }
+
+    /// Validates standard string lengths.
+    function isNonEmptyString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    // =========================================================================
+    // 1. USERS COLLECTION (`users/{userId}`)
+    // =========================================================================
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow get: if isUser(userId);
+      allow list: if false;
+
+      allow create: if isUser(userId)
+                    && request.resource.data.ownerId == userId
+                    && isNonEmptyString(request.resource.data.email, 5, 100)
+                    && isNonEmptyString(request.resource.data.fullName, 2, 100);
+
+      allow update: if isUser(userId)
+                    && isOwnerImmutable()
+                    && request.resource.data.email == resource.data.email;
+
+      allow delete: if false;
     }
 
+    // =========================================================================
+    // 2. PROPERTY PROJECTS (`projects/{projectId}`)
+    // =========================================================================
     match /projects/{projectId} {
-      allow read, delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
-      allow update: if request.auth != null && resource.data.ownerId == request.auth.uid && request.resource.data.ownerId == resource.data.ownerId;
+      allow read: if isResourceOwner();
+
+      allow create: if isAssigningSelfAsOwner()
+                    && isNonEmptyString(request.resource.data.name, 2, 150)
+                    && isNonEmptyString(request.resource.data.developer, 2, 150)
+                    && isNonEmptyString(request.resource.data.location, 2, 100);
+
+      allow update: if isResourceOwner()
+                    && isOwnerImmutable();
+
+      allow delete: if isResourceOwner();
     }
 
+    // =========================================================================
+    // 3. BUYER PROFILES (`buyers/{buyerId}`)
+    // =========================================================================
     match /buyers/{buyerId} {
-      allow read, delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
-      allow update: if request.auth != null && resource.data.ownerId == request.auth.uid && request.resource.data.ownerId == resource.data.ownerId;
+      allow read: if isResourceOwner();
+
+      allow create: if isAssigningSelfAsOwner()
+                    && isNonEmptyString(request.resource.data.name, 2, 100)
+                    && isNonEmptyString(request.resource.data.preferredLocation, 2, 100);
+
+      allow update: if isResourceOwner()
+                    && isOwnerImmutable();
+
+      allow delete: if isResourceOwner();
     }
 
+    // =========================================================================
+    // 4. LEADS PIPELINE (`leads/{leadId}`)
+    // =========================================================================
     match /leads/{leadId} {
-      allow read, delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
-      allow update: if request.auth != null && resource.data.ownerId == request.auth.uid && request.resource.data.ownerId == resource.data.ownerId;
+      allow read: if isResourceOwner();
+
+      allow create: if isAssigningSelfAsOwner()
+                    && isNonEmptyString(request.resource.data.buyerName, 2, 100)
+                    && isNonEmptyString(request.resource.data.projectName, 2, 150);
+
+      allow update: if isResourceOwner()
+                    && isOwnerImmutable();
+
+      allow delete: if isResourceOwner();
     }
 
-    match /audienceSegments/{segmentId} {
-      allow read, delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
-      allow update: if request.auth != null && resource.data.ownerId == request.auth.uid && request.resource.data.ownerId == resource.data.ownerId;
-    }
-
-    match /matches/{matchId} {
-      allow read, delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
-      allow update: if request.auth != null && resource.data.ownerId == request.auth.uid && request.resource.data.ownerId == resource.data.ownerId;
-    }
-
-    match /campaigns/{campaignId} {
-      allow read, delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
-      allow update: if request.auth != null && resource.data.ownerId == request.auth.uid && request.resource.data.ownerId == resource.data.ownerId;
-    }
-
+    // =========================================================================
+    // 5. FOLLOW-UP TASKS (`followups/{followupId}`)
+    // =========================================================================
     match /followups/{followupId} {
-      allow read, delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
-      allow update: if request.auth != null && resource.data.ownerId == request.auth.uid && request.resource.data.ownerId == resource.data.ownerId;
+      allow read: if isResourceOwner();
+
+      allow create: if isAssigningSelfAsOwner()
+                    && isNonEmptyString(request.resource.data.buyerName, 2, 100)
+                    && isNonEmptyString(request.resource.data.task, 2, 250);
+
+      allow update: if isResourceOwner()
+                    && isOwnerImmutable();
+
+      allow delete: if isResourceOwner();
     }
 
-    match /acquisitionSignals/{signalId} {
-      // Signals are public market demand reads, writable only by system
-      allow read: if request.auth != null;
-      allow write: if false;
+    // =========================================================================
+    // 6. MARKETING CAMPAIGNS (`campaigns/{campaignId}`)
+    // =========================================================================
+    match /campaigns/{campaignId} {
+      allow read: if isResourceOwner();
+
+      allow create: if isAssigningSelfAsOwner()
+                    && isNonEmptyString(request.resource.data.name, 2, 150)
+                    && isNonEmptyString(request.resource.data.platform, 2, 50);
+
+      allow update: if isResourceOwner()
+                    && isOwnerImmutable();
+
+      allow delete: if isResourceOwner();
+    }
+
+    // =========================================================================
+    // 7. MATCH RECORDS (`matches/{matchId}`)
+    // =========================================================================
+    match /matches/{matchId} {
+      allow read: if isResourceOwner();
+
+      allow create: if isAssigningSelfAsOwner();
+
+      allow update: if isResourceOwner()
+                    && isOwnerImmutable();
+
+      allow delete: if isResourceOwner();
+    }
+
+    // =========================================================================
+    // 8. AUDIENCE SEGMENTS (`audience_segments/{segmentId}`)
+    // =========================================================================
+    match /audience_segments/{segmentId} {
+      allow read: if isResourceOwner();
+
+      allow create: if isAssigningSelfAsOwner()
+                    && isNonEmptyString(request.resource.data.name, 2, 150);
+
+      allow update: if isResourceOwner()
+                    && isOwnerImmutable();
+
+      allow delete: if isResourceOwner();
+    }
+
+    // =========================================================================
+    // 9. PDPA CONSENT AUDIT LOG (`consent_records/{consentId}`)
+    // =========================================================================
+    // CRITICAL: Append-only immutable compliance log. Modifying or deleting
+    // historic consent is strictly forbidden by PDPA.
+    match /consent_records/{consentId} {
+      allow read: if isResourceOwner();
+
+      allow create: if isAssigningSelfAsOwner()
+                    && isNonEmptyString(request.resource.data.buyerId, 1, 100)
+                    && request.resource.data.consentType in ['enquiry_response', 'marketing_communication']
+                    && request.resource.data.consentStatus in ['granted', 'withdrawn'];
+
+      // Immutable: No updates or deletes allowed
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // DEFAULT DENY FALLTHROUGH
+    // =========================================================================
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

@@ -115,8 +115,8 @@ class SettingsScreen extends StatelessWidget {
                       OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(foregroundColor: AppTheme.error),
                         onPressed: () {
-                          // Clear demo profiles
-                          appState.buyers.removeWhere((b) => b.isDemo);
+                          // Clear demo profiles via provider method
+                          appState.removeDemoBuyers();
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('Cleared all synthetic demo profiles.')),
                           );

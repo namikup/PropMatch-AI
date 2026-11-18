@@ -126,50 +126,102 @@ class TopBar extends StatelessWidget {
 
           const SizedBox(width: AppTheme.spacingSm),
 
+          // Demo Mode Indicator Pill
+          if (appState.isDemoMode && !isCompact) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppTheme.warning.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: AppTheme.warning.withValues(alpha: 0.4)),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.science_outlined, size: 14, color: AppTheme.warning),
+                  SizedBox(width: 5),
+                  Text(
+                    'DEMO SANDBOX',
+                    style: TextStyle(
+                      color: AppTheme.warning,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: AppTheme.spacingMd),
+          ],
+
           // User avatar & Agent Profile
           PopupMenuButton<String>(
             offset: const Offset(0, 52),
-            child: Row(
-              children: [
-                const CircleAvatar(
-                  radius: 18,
-                  backgroundColor: AppTheme.primary,
-                  child: Text(
-                    'MA',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
+            child: Builder(
+              builder: (context) {
+                final profile = appState.currentUserProfile;
+                final authUser = appState.authRepository.currentUser;
+                final agentName = profile?.fullName ?? authUser?.displayName ?? 'Malaysian Agent';
+
+                String initials = 'MA';
+                if (agentName.trim().isNotEmpty) {
+                  final parts = agentName.trim().split(RegExp(r'\s+'));
+                  if (parts.length >= 2) {
+                    initials = '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+                  } else {
+                    initials = agentName.trim().substring(0, agentName.trim().length >= 2 ? 2 : 1).toUpperCase();
+                  }
+                }
+
+                final subtitle = appState.isDemoMode
+                    ? 'DEMO SANDBOX'
+                    : (profile?.renNumber.isNotEmpty == true
+                        ? '${profile!.renNumber} • ${(profile.agencyName.isNotEmpty ? profile.agencyName : "PropMatch").toUpperCase()}'
+                        : (profile?.region ?? 'MALAYSIA').toUpperCase());
+
+                return Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 18,
+                      backgroundColor: appState.isDemoMode ? AppTheme.accent : AppTheme.primary,
+                      child: Text(
+                        initials,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                if (!isCompact) ...[
-                  const SizedBox(width: AppTheme.spacingSm),
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Malaysian Agent',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
+                    if (!isCompact) ...[
+                      const SizedBox(width: AppTheme.spacingSm),
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            agentName,
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                          Text(
+                            subtitle,
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  fontSize: 10,
+                                  color: appState.isDemoMode ? AppTheme.warning : AppTheme.textHint,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ],
                       ),
-                      Text(
-                        'PENANG & KEDAH REGION',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              fontSize: 10,
-                              color: AppTheme.textHint,
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
+                      const SizedBox(width: AppTheme.spacingXs),
+                      const Icon(Icons.arrow_drop_down, size: 18, color: AppTheme.textSecondary),
                     ],
-                  ),
-                  const SizedBox(width: AppTheme.spacingXs),
-                  const Icon(Icons.arrow_drop_down, size: 18, color: AppTheme.textSecondary),
-                ],
-              ],
+                  ],
+                );
+              },
             ),
             itemBuilder: (context) => [
               const PopupMenuItem(
@@ -192,10 +244,11 @@ class TopBar extends StatelessWidget {
                 ),
               ),
             ],
-            onSelected: (value) {
+            onSelected: (value) async {
               if (value == 'settings') {
                 nav.navigateTo(NavItem.settings);
               } else if (value == 'logout') {
+                await appState.authRepository.signOut();
                 if (onLogout != null) {
                   onLogout!();
                 }

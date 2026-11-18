@@ -1,6 +1,7 @@
 import '../models/project_model.dart';
 import '../models/buyer_model.dart';
 import '../models/lead_model.dart';
+import '../models/followup_model.dart';
 
 class DemoDataService {
   static const String demoOwnerId = 'demo-agent-001';
@@ -337,6 +338,60 @@ class DemoDataService {
         dealValue: 920000,
         notes: 'Seeking passive rental yield. Requested gross rental return projections.',
         isDemo: true,
+      ),
+    ];
+  }
+
+  /// Initial sample follow-up schedules for the agent
+  static List<FollowupModel> getInitialFollowups() {
+    return [
+      FollowupModel(
+        id: 'f-1',
+        ownerId: demoOwnerId,
+        buyerId: 'demo-buyer-001',
+        buyerName: 'Ahmad Ismail (Demo)',
+        projectId: 'proj-001',
+        projectName: 'EXSIM Demo Residence',
+        task: 'Confirm Saturday 2:00 PM showroom appointment & Maybank pre-approval letter',
+        dueDate: 'Tomorrow, 2:00 PM',
+        type: 'Showroom Viewing',
+        isCompleted: false,
+      ),
+      FollowupModel(
+        id: 'f-2',
+        ownerId: demoOwnerId,
+        buyerId: 'demo-buyer-005',
+        buyerName: 'Wei Lun Tan (Demo)',
+        projectId: 'proj-001',
+        projectName: 'EXSIM Demo Residence',
+        task: 'Send PDF layout of Type B (950 sqft) via WhatsApp with car park allocation breakdown',
+        dueDate: 'Today, 5:00 PM',
+        type: 'WhatsApp Follow-up',
+        isCompleted: false,
+      ),
+      FollowupModel(
+        id: 'f-3',
+        ownerId: demoOwnerId,
+        buyerId: 'demo-buyer-012',
+        buyerName: 'Kavitha Ramasamy (Demo)',
+        projectId: 'proj-002',
+        projectName: 'Gurney Premier Suites',
+        task: 'Follow up on 5-year gross rental yield spreadsheet and tenant management proposal',
+        dueDate: 'In 2 days',
+        type: 'Investor Consultation',
+        isCompleted: false,
+      ),
+      FollowupModel(
+        id: 'f-4',
+        ownerId: demoOwnerId,
+        buyerId: 'demo-buyer-020',
+        buyerName: 'Chee Meng Wong (Demo)',
+        projectId: 'proj-003',
+        projectName: 'Kulim Hi-Tech Green Residences',
+        task: 'Review corner lot availability and early bird rebate calculation',
+        dueDate: 'Completed Yesterday',
+        type: 'Loan Screening',
+        isCompleted: true,
       ),
     ];
   }

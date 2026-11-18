@@ -17,6 +17,7 @@ class CampaignModel {
   final int clicks;
   final int enquiries;
   final DateTime createdAt;
+  final DateTime updatedAt;
 
   CampaignModel({
     String? id,
@@ -35,8 +36,50 @@ class CampaignModel {
     this.clicks = 0,
     this.enquiries = 0,
     DateTime? createdAt,
+    DateTime? updatedAt,
   })  : id = id ?? const Uuid().v4(),
-        createdAt = createdAt ?? DateTime.now();
+        createdAt = createdAt ?? DateTime.now(),
+        updatedAt = updatedAt ?? DateTime.now();
+
+  CampaignModel copyWith({
+    String? id,
+    String? ownerId,
+    String? name,
+    String? projectId,
+    String? projectName,
+    String? audienceSegmentId,
+    String? audienceSegmentName,
+    String? platform,
+    String? contentHeadline,
+    String? contentBody,
+    String? callToAction,
+    String? status,
+    int? reach,
+    int? clicks,
+    int? enquiries,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return CampaignModel(
+      id: id ?? this.id,
+      ownerId: ownerId ?? this.ownerId,
+      name: name ?? this.name,
+      projectId: projectId ?? this.projectId,
+      projectName: projectName ?? this.projectName,
+      audienceSegmentId: audienceSegmentId ?? this.audienceSegmentId,
+      audienceSegmentName: audienceSegmentName ?? this.audienceSegmentName,
+      platform: platform ?? this.platform,
+      contentHeadline: contentHeadline ?? this.contentHeadline,
+      contentBody: contentBody ?? this.contentBody,
+      callToAction: callToAction ?? this.callToAction,
+      status: status ?? this.status,
+      reach: reach ?? this.reach,
+      clicks: clicks ?? this.clicks,
+      enquiries: enquiries ?? this.enquiries,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? DateTime.now(),
+    );
+  }
 
   Map<String, dynamic> toMap() {
     return {
@@ -56,10 +99,14 @@ class CampaignModel {
       'clicks': clicks,
       'enquiries': enquiries,
       'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt.toIso8601String(),
     };
   }
 
   factory CampaignModel.fromMap(Map<String, dynamic> map) {
+    final created = map['createdAt'] != null
+        ? DateTime.tryParse(map['createdAt']) ?? DateTime.now()
+        : DateTime.now();
     return CampaignModel(
       id: map['id'] as String? ?? '',
       ownerId: map['ownerId'] as String? ?? '',
@@ -76,9 +123,10 @@ class CampaignModel {
       reach: (map['reach'] as num?)?.toInt() ?? 0,
       clicks: (map['clicks'] as num?)?.toInt() ?? 0,
       enquiries: (map['enquiries'] as num?)?.toInt() ?? 0,
-      createdAt: map['createdAt'] != null
-          ? DateTime.tryParse(map['createdAt']) ?? DateTime.now()
-          : DateTime.now(),
+      createdAt: created,
+      updatedAt: map['updatedAt'] != null
+          ? DateTime.tryParse(map['updatedAt']) ?? created
+          : created,
     );
   }
 }

@@ -15,5 +15,17 @@
         "destination": "/index.html"
       }
     ]
+  },
+  "flutter": {
+    "platforms": {
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "property-71665",
+          "configurations": {
+            "web": "1:890199159513:web:1b24166e345e0e5eeb44c8"
+          }
+        }
+      }
+    }
   }
 }

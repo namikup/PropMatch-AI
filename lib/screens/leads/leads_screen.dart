@@ -201,15 +201,60 @@ class _LeadsScreenState extends State<LeadsScreen> {
                           ),
                           Padding(
                             padding: const EdgeInsets.symmetric(vertical: 12),
-                            child: IconButton(
-                              icon: const Icon(Icons.check_circle_outline, color: AppTheme.success, size: 20),
-                              tooltip: 'Mark Deal Won',
-                              onPressed: () {
-                                appState.updateLeadStatus(lead.id, 'Won');
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Marked ${lead.buyerName} as Won!')),
-                                );
-                              },
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                PopupMenuButton<String>(
+                                  tooltip: 'Change Pipeline Stage',
+                                  icon: const Icon(Icons.swap_horiz, size: 20, color: AppTheme.primary),
+                                  onSelected: (newStatus) {
+                                    appState.updateLeadStatus(lead.id, newStatus);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Updated ${lead.buyerName} stage to "$newStatus"')),
+                                    );
+                                  },
+                                  itemBuilder: (ctx) => [
+                                    'New',
+                                    'Contacted',
+                                    'Qualified',
+                                    'Negotiating',
+                                    'Won',
+                                    'Lost',
+                                  ].map((stage) {
+                                    final isCurrent = stage == lead.status;
+                                    return PopupMenuItem<String>(
+                                      value: stage,
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            isCurrent ? Icons.check_circle : Icons.circle_outlined,
+                                            size: 16,
+                                            color: isCurrent ? AppTheme.primary : AppTheme.textHint,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            stage,
+                                            style: TextStyle(
+                                              fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                                              color: isCurrent ? AppTheme.primary : null,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: AppTheme.textHint, size: 18),
+                                  tooltip: 'Delete Lead',
+                                  onPressed: () {
+                                    appState.deleteLead(lead.id);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Removed ${lead.buyerName} from pipeline')),
+                                    );
+                                  },
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -230,6 +275,7 @@ class _LeadsScreenState extends State<LeadsScreen> {
     if (status == 'Qualified' || status == 'Won') color = AppTheme.success;
     if (status == 'Contacted') color = AppTheme.info;
     if (status == 'Negotiating') color = AppTheme.accent;
+    if (status == 'Lost') color = AppTheme.error;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -245,10 +291,29 @@ class _LeadsScreenState extends State<LeadsScreen> {
   }
 
   void _showAddLeadDialog(BuildContext context, AppStateProvider appState) {
+    if (appState.projects.isEmpty) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('No Property Projects Available', style: TextStyle(fontWeight: FontWeight.w700)),
+          content: const Text(
+            'You must create at least one property project in the Property Projects module before capturing buyer enquiries.',
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     final nameCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
     final valueCtrl = TextEditingController(text: '450000');
-    String projectVal = appState.projects.isNotEmpty ? appState.projects.first.id : '';
+    String projectVal = appState.projects.first.id;
     String sourceVal = 'WhatsApp Enquiry';
 
     showDialog(
@@ -301,8 +366,11 @@ class _LeadsScreenState extends State<LeadsScreen> {
             ),
             ElevatedButton(
               onPressed: () {
-                if (nameCtrl.text.isEmpty) return;
-                final project = appState.projects.firstWhere((p) => p.id == projectVal);
+                if (nameCtrl.text.trim().isEmpty) return;
+                final matchedProjects = appState.projects.where((p) => p.id == projectVal);
+                if (matchedProjects.isEmpty) return;
+                final project = matchedProjects.first;
+
                 final newLead = LeadModel(
                   ownerId: appState.currentOwnerId,
                   buyerId: 'manual-${DateTime.now().millisecondsSinceEpoch}',
@@ -316,9 +384,8 @@ class _LeadsScreenState extends State<LeadsScreen> {
                   isDemo: false, // Genuine voluntary enquiry
                 );
 
-                appState.leads.insert(0, newLead);
+                appState.addLead(newLead);
                 Navigator.of(ctx).pop();
-                setState(() {});
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text('Saved enquiry for ${newLead.buyerName}!')),
                 );

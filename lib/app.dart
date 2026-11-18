@@ -19,14 +19,20 @@ import 'screens/analytics/analytics_screen.dart';
 import 'screens/settings/settings_screen.dart';
 
 class PropMatchApp extends StatelessWidget {
-  const PropMatchApp({super.key});
+  final bool isFirebaseConnected;
+
+  const PropMatchApp({super.key, this.isFirebaseConnected = false});
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => NavigationProvider()),
-        ChangeNotifierProvider(create: (_) => AppStateProvider()),
+        ChangeNotifierProvider(
+          create: (_) => isFirebaseConnected
+              ? AppStateProvider.firebase()
+              : AppStateProvider(),
+        ),
       ],
       child: MaterialApp(
         title: 'PropMatch AI — Malaysian Property Lead Discovery & Matching',
@@ -38,30 +44,27 @@ class PropMatchApp extends StatelessWidget {
   }
 }
 
-class AppEntry extends StatefulWidget {
+class AppEntry extends StatelessWidget {
   const AppEntry({super.key});
 
   @override
-  State<AppEntry> createState() => _AppEntryState();
-}
-
-class _AppEntryState extends State<AppEntry> {
-  bool _isLoggedIn = true; // Default to true in development for immediate web dashboard access
-
-  void _onLoginSuccess() {
-    setState(() => _isLoggedIn = true);
-  }
-
-  void _onLogout() {
-    setState(() => _isLoggedIn = false);
-  }
-
-  @override
   Widget build(BuildContext context) {
-    if (!_isLoggedIn) {
-      return LoginScreen(onLoginSuccess: _onLoginSuccess);
+    final appState = context.watch<AppStateProvider>();
+    final currentUser = appState.authRepository.currentUser;
+
+    if (currentUser == null) {
+      return LoginScreen(
+        onLoginSuccess: () {
+          // Handled reactively by AppStateProvider's authStateChanges listener
+        },
+      );
     }
-    return AppShell(onLogout: _onLogout);
+
+    return AppShell(
+      onLogout: () async {
+        await appState.authRepository.signOut();
+      },
+    );
   }
 }
 

@@ -1,0 +1,69 @@
+export interface LogMetadata {
+  requestId?: string;
+  ownerId?: string;
+  feature?: string;
+  latencyMs?: number;
+  model?: string;
+  [key: string]: unknown;
+}
+
+const REDACTED_KEYS = ["password", "token", "apiKey", "secret", "phone", "email", "fullName"];
+
+function sanitizeValue(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") {
+    // Redact email patterns
+    return value.replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "[REDACTED_EMAIL]");
+  }
+  if (Array.isArray(value)) {
+    return value.map(sanitizeValue);
+  }
+  if (typeof value === "object") {
+    const cleaned: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (REDACTED_KEYS.some((rk) => k.toLowerCase().includes(rk.toLowerCase()))) {
+        cleaned[k] = "[REDACTED]";
+      } else {
+        cleaned[k] = sanitizeValue(v);
+      }
+    }
+    return cleaned;
+  }
+  return value;
+}
+
+export class Logger {
+  static info(message: string, meta?: LogMetadata): void {
+    const logEntry = {
+      level: "INFO",
+      timestamp: new Date().toISOString(),
+      message,
+      ...(meta ? (sanitizeValue(meta) as object) : {})
+    };
+    console.log(JSON.stringify(logEntry));
+  }
+
+  static warn(message: string, meta?: LogMetadata): void {
+    const logEntry = {
+      level: "WARN",
+      timestamp: new Date().toISOString(),
+      message,
+      ...(meta ? (sanitizeValue(meta) as object) : {})
+    };
+    console.warn(JSON.stringify(logEntry));
+  }
+
+  static error(message: string, error?: unknown, meta?: LogMetadata): void {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    const logEntry = {
+      level: "ERROR",
+      timestamp: new Date().toISOString(),
+      message,
+      errorMessage,
+      errorStack,
+      ...(meta ? (sanitizeValue(meta) as object) : {})
+    };
+    console.error(JSON.stringify(logEntry));
+  }
+}

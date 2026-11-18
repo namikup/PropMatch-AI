@@ -383,19 +383,47 @@ class _MatchingScreenState extends State<MatchingScreen> {
             // Action
             SizedBox(
               width: double.infinity,
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.secondary),
-                onPressed: () {
-                  appState.addLeadFromMatch(match);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Converted ${match.buyerName} to active lead!'),
-                      backgroundColor: AppTheme.success,
+              child: Builder(
+                builder: (context) {
+                  final alreadyInPipeline = appState.hasLeadForBuyerAndProject(match.buyerId, match.projectId);
+
+                  return ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: alreadyInPipeline ? AppTheme.cardBorder : AppTheme.secondary,
+                      foregroundColor: alreadyInPipeline ? AppTheme.textSecondary : Colors.white,
                     ),
+                    onPressed: () {
+                      if (alreadyInPipeline) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('${match.buyerName} is already registered in the lead pipeline for ${match.projectName}.'),
+                            backgroundColor: AppTheme.warning,
+                          ),
+                        );
+                        return;
+                      }
+
+                      final added = appState.addLeadFromMatch(match);
+                      if (added) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Converted ${match.buyerName} to active lead!'),
+                            backgroundColor: AppTheme.success,
+                          ),
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('${match.buyerName} is already in the lead pipeline.'),
+                            backgroundColor: AppTheme.warning,
+                          ),
+                        );
+                      }
+                    },
+                    icon: Icon(alreadyInPipeline ? Icons.check_circle : Icons.person_add_alt, size: 18),
+                    label: Text(alreadyInPipeline ? 'Lead Already in Pipeline' : 'Convert to Qualified Lead Pipeline'),
                   );
                 },
-                icon: const Icon(Icons.person_add_alt, size: 18),
-                label: const Text('Convert to Qualified Lead Pipeline'),
               ),
             ),
           ],

@@ -19,6 +19,7 @@ class BuyerModel {
   final String? audienceSegment; // Fictional assigned audience segment
   final String notes;
   final DateTime createdAt;
+  final DateTime updatedAt;
 
   BuyerModel({
     String? id,
@@ -39,8 +40,10 @@ class BuyerModel {
     this.audienceSegment,
     this.notes = '',
     DateTime? createdAt,
+    DateTime? updatedAt,
   })  : id = id ?? const Uuid().v4(),
-        createdAt = createdAt ?? DateTime.now();
+        createdAt = createdAt ?? DateTime.now(),
+        updatedAt = updatedAt ?? DateTime.now();
 
   BuyerModel copyWith({
     String? id,
@@ -61,6 +64,7 @@ class BuyerModel {
     String? audienceSegment,
     String? notes,
     DateTime? createdAt,
+    DateTime? updatedAt,
   }) {
     return BuyerModel(
       id: id ?? this.id,
@@ -81,6 +85,7 @@ class BuyerModel {
       audienceSegment: audienceSegment ?? this.audienceSegment,
       notes: notes ?? this.notes,
       createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? DateTime.now(),
     );
   }
 
@@ -104,10 +109,14 @@ class BuyerModel {
       'audienceSegment': audienceSegment,
       'notes': notes,
       'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt.toIso8601String(),
     };
   }
 
   factory BuyerModel.fromMap(Map<String, dynamic> map) {
+    final created = map['createdAt'] != null
+        ? DateTime.tryParse(map['createdAt']) ?? DateTime.now()
+        : DateTime.now();
     return BuyerModel(
       id: map['id'] as String? ?? '',
       ownerId: map['ownerId'] as String? ?? '',
@@ -126,9 +135,10 @@ class BuyerModel {
       isDemo: map['isDemo'] as bool? ?? false,
       audienceSegment: map['audienceSegment'] as String?,
       notes: map['notes'] as String? ?? '',
-      createdAt: map['createdAt'] != null
-          ? DateTime.tryParse(map['createdAt']) ?? DateTime.now()
-          : DateTime.now(),
+      createdAt: created,
+      updatedAt: map['updatedAt'] != null
+          ? DateTime.tryParse(map['updatedAt']) ?? created
+          : created,
     );
   }
 }
