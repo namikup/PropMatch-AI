@@ -26,6 +26,11 @@ class AudienceSegmentModel {
   final String incomeRange; // e.g. "RM7,000–RM12,000/month"
   final List<GeographicTarget> geographicTargets; // Multi-state targeting
 
+  // Refinement fields for transparency & deep explanation
+  final List<String> missingInformation; // Data gaps that could improve recommendations
+  final List<String> matchingPropertyCharacteristics; // Explicit matching features
+  final String demographicDisclaimer; // Explanation of demographic persona assumptions
+
   AudienceSegmentModel({
     String? id,
     required this.projectId,
@@ -48,6 +53,9 @@ class AudienceSegmentModel {
     this.ageRange = '',
     this.incomeRange = '',
     this.geographicTargets = const [],
+    this.missingInformation = const [],
+    this.matchingPropertyCharacteristics = const [],
+    this.demographicDisclaimer = '',
     DateTime? createdAt,
   })  : id = id ?? const Uuid().v4(),
         createdAt = createdAt ?? DateTime.now();
@@ -75,6 +83,9 @@ class AudienceSegmentModel {
       'ageRange': ageRange,
       'incomeRange': incomeRange,
       'geographicTargets': geographicTargets.map((g) => g.toMap()).toList(),
+      'missingInformation': missingInformation,
+      'matchingPropertyCharacteristics': matchingPropertyCharacteristics,
+      'demographicDisclaimer': demographicDisclaimer,
       'createdAt': createdAt.toIso8601String(),
     };
   }
@@ -106,6 +117,11 @@ class AudienceSegmentModel {
               ?.map((g) => GeographicTarget.fromMap(g))
               .toList() ??
           [],
+      missingInformation:
+          List<String>.from(map['missingInformation'] ?? []),
+      matchingPropertyCharacteristics:
+          List<String>.from(map['matchingPropertyCharacteristics'] ?? []),
+      demographicDisclaimer: map['demographicDisclaimer'] as String? ?? '',
       createdAt: map['createdAt'] != null
           ? DateTime.tryParse(map['createdAt']) ?? DateTime.now()
           : DateTime.now(),
@@ -119,12 +135,18 @@ class GeographicTarget {
   final String rationale; // Why buyers from this state would be interested
   final double relevanceScore; // 0-100
   final List<String> marketingApproach; // How to reach them
+  final String campaignAngle; // Specific campaign positioning for this state
+  final String marketingOpportunity; // Strategic opportunity explanation
+  final List<String> assumptions; // Explicit assumptions behind this recommendation
 
   GeographicTarget({
     required this.state,
     required this.rationale,
     required this.relevanceScore,
     this.marketingApproach = const [],
+    this.campaignAngle = '',
+    this.marketingOpportunity = '',
+    this.assumptions = const [],
   });
 
   Map<String, dynamic> toMap() => {
@@ -132,6 +154,9 @@ class GeographicTarget {
         'rationale': rationale,
         'relevanceScore': relevanceScore,
         'marketingApproach': marketingApproach,
+        'campaignAngle': campaignAngle,
+        'marketingOpportunity': marketingOpportunity,
+        'assumptions': assumptions,
       };
 
   factory GeographicTarget.fromMap(Map<String, dynamic> map) {
@@ -140,6 +165,9 @@ class GeographicTarget {
       rationale: map['rationale'] as String? ?? '',
       relevanceScore: (map['relevanceScore'] as num?)?.toDouble() ?? 0.0,
       marketingApproach: List<String>.from(map['marketingApproach'] ?? []),
+      campaignAngle: map['campaignAngle'] as String? ?? '',
+      marketingOpportunity: map['marketingOpportunity'] as String? ?? '',
+      assumptions: List<String>.from(map['assumptions'] ?? []),
     );
   }
 }

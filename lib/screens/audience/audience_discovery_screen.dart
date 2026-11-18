@@ -623,32 +623,38 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
                                 width: 0.5,
                               ),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.bolt,
-                                  size: 13,
-                                  color: segment.suitabilityScore >= 85
-                                      ? AppTheme.secondary
-                                      : segment.suitabilityScore >= 70
-                                          ? AppTheme.warning
-                                          : AppTheme.textSecondary,
-                                ),
-                                const SizedBox(width: 2),
-                                Text(
-                                  '${segment.suitabilityScore.toStringAsFixed(0)}% SUITABILITY (AI ESTIMATE)',
-                                  style: TextStyle(
-                                    color: segment.suitabilityScore >= 85
-                                        ? AppTheme.secondary
-                                        : segment.suitabilityScore >= 70
-                                            ? AppTheme.warning
-                                            : AppTheme.textPrimary,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w800,
+                            child: Text.rich(
+                              TextSpan(
+                                children: [
+                                  WidgetSpan(
+                                    alignment: PlaceholderAlignment.middle,
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(right: 3),
+                                      child: Icon(
+                                        Icons.bolt,
+                                        size: 13,
+                                        color: segment.suitabilityScore >= 85
+                                            ? AppTheme.secondary
+                                            : segment.suitabilityScore >= 70
+                                                ? AppTheme.warning
+                                                : AppTheme.textSecondary,
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ],
+                                  TextSpan(
+                                    text: '${segment.suitabilityScore.toStringAsFixed(0)}% COMPATIBILITY (AI ESTIMATE)',
+                                    style: TextStyle(
+                                      color: segment.suitabilityScore >= 85
+                                          ? AppTheme.secondary
+                                          : segment.suitabilityScore >= 70
+                                              ? AppTheme.warning
+                                              : AppTheme.textPrimary,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ],
@@ -659,16 +665,28 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
                         style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
                       ),
                       const SizedBox(height: 6),
-                      // Quick Demographics Bar
+                      // Quick Demographics Bar with Hypothetical Persona Indicator
                       Wrap(
-                        spacing: 12,
+                        spacing: 8,
                         runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           if (segment.ageRange.isNotEmpty)
                             _buildMiniTag(Icons.cake_outlined, 'Age: ${segment.ageRange}'),
                           if (segment.incomeRange.isNotEmpty)
                             _buildMiniTag(Icons.account_balance_wallet_outlined, 'Income: ${segment.incomeRange}'),
                           _buildMiniTag(Icons.flag_outlined, 'Purpose: ${segment.purchasePurpose}'),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppTheme.cardBorder.withValues(alpha: 0.6),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                            child: const Text(
+                              'HYPOTHETICAL PERSONA',
+                              style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppTheme.textHint),
+                            ),
+                          ),
                         ],
                       ),
                     ],
@@ -765,11 +783,19 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Score Drivers Breakdown
-                          if (segment.scoringFactors.isNotEmpty) ...[
-                            const Text(
-                              '📊 Scoring Factors Breakdown',
-                              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                          // Positive Compatibility Factors
+                          if (segment.scoringFactors.any((f) => f.startsWith('+'))) ...[
+                            const Row(
+                              children: [
+                                Icon(Icons.check_circle, size: 15, color: AppTheme.secondary),
+                                SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    'Positive Compatibility Drivers',
+                                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                                  ),
+                                ),
+                              ],
                             ),
                             const SizedBox(height: 6),
                             Container(
@@ -781,19 +807,15 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
-                                children: segment.scoringFactors.map((factor) {
-                                  final isPositive = factor.startsWith('+');
+                                children: segment.scoringFactors
+                                    .where((f) => f.startsWith('+'))
+                                    .map((factor) {
                                   return Padding(
                                     padding: const EdgeInsets.only(bottom: 3),
                                     child: Row(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Icon(
-                                          isPositive ? Icons.check_circle_outline : Icons.remove_circle_outline,
-                                          size: 14,
-                                          color: isPositive ? AppTheme.secondary : AppTheme.error,
-                                        ),
-                                        const SizedBox(width: 6),
+                                        const Text('• ', style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.secondary)),
                                         Expanded(
                                           child: Text(
                                             factor,
@@ -806,7 +828,101 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
                                 }).toList(),
                               ),
                             ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 10),
+                          ],
+
+                          // Negative Factors & Constraints
+                          if (segment.scoringFactors.any((f) => f.startsWith('-'))) ...[
+                            const Row(
+                              children: [
+                                Icon(Icons.remove_circle, size: 15, color: AppTheme.error),
+                                SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    'Negative Factors & Constraints',
+                                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: AppTheme.background,
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: AppTheme.cardBorder),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: segment.scoringFactors
+                                    .where((f) => f.startsWith('-'))
+                                    .map((factor) {
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 3),
+                                    child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Text('• ', style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.error)),
+                                        Expanded(
+                                          child: Text(
+                                            factor,
+                                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                          ],
+
+                          // Missing Information & Data Gaps
+                          if (segment.missingInformation.isNotEmpty) ...[
+                            const Row(
+                              children: [
+                                Icon(Icons.help_outline, size: 15, color: AppTheme.warning),
+                                SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    'Missing Information That Could Improve Fit',
+                                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: AppTheme.warning.withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: AppTheme.warning.withValues(alpha: 0.3)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: segment.missingInformation.map((info) {
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 3),
+                                    child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Text('⚠️ ', style: TextStyle(fontSize: 10)),
+                                        Expanded(
+                                          child: Text(
+                                            info,
+                                            style: const TextStyle(fontSize: 11, color: AppTheme.textPrimary),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
                           ],
 
                           // Anticipated Objections
@@ -885,6 +1001,13 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Audience Suitability & Deep Explainability Analysis
+                    _buildExpandedAudienceExplanation(context, segment),
+                    const SizedBox(height: AppTheme.spacingLg),
+                    const Divider(),
+                    const SizedBox(height: AppTheme.spacingLg),
+
+                    // In-Situ Marketing & Ad Creative Suite
                     Row(
                       children: [
                         const Icon(Icons.campaign, color: AppTheme.primary, size: 20),
@@ -1150,6 +1273,231 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
   }
 
   // ───────────────────────────────────────────────────────────
+  //  Audience Suitability & Deep Explainability Analysis (Expanded)
+  // ───────────────────────────────────────────────────────────
+
+  Widget _buildExpandedAudienceExplanation(
+    BuildContext context,
+    AudienceSegmentModel segment,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.psychology, color: AppTheme.primary, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              'Audience Suitability & Explainability Deep Dive',
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+            ),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppTheme.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Text(
+                'AI EXPLAINABILITY MATRIX',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.primary,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Detailed compatibility analysis explaining why this segment matches the project, matching property features, objections, and data gaps.',
+          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+        ),
+        const SizedBox(height: 14),
+
+        // Demographic Assumption Disclaimer Callout
+        if (segment.demographicDisclaimer.isNotEmpty) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.info.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: AppTheme.info.withValues(alpha: 0.25)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.shield_outlined, color: AppTheme.info, size: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Hypothetical Persona Transparency & Rationale',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.info),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        segment.demographicDisclaimer,
+                        style: const TextStyle(fontSize: 12, color: AppTheme.textPrimary, height: 1.4),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+        ],
+
+        // Explainer Matrix
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth >= 700;
+
+            final leftColumn = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildExplainerBox(
+                  title: '🔍 Matching Property Characteristics',
+                  icon: Icons.check_circle_outline,
+                  iconColor: AppTheme.secondary,
+                  items: segment.matchingPropertyCharacteristics,
+                  emptyText: 'No explicit matching characteristics registered.',
+                ),
+                const SizedBox(height: 12),
+                _buildExplainerBox(
+                  title: '🎯 Suggested Marketing Strategy',
+                  icon: Icons.lightbulb_outline,
+                  iconColor: AppTheme.accent,
+                  customContent: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        segment.marketingAngle,
+                        style: const TextStyle(fontSize: 12, height: 1.4, fontWeight: FontWeight.w600),
+                      ),
+                      if (segment.recommendedMarketingMessages.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Text('Key Message Hooks:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.textHint)),
+                        const SizedBox(height: 4),
+                        ...segment.recommendedMarketingMessages.take(2).map((msg) => Padding(
+                              padding: const EdgeInsets.only(bottom: 3),
+                              child: Text('• $msg', style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic)),
+                            )),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            );
+
+            final rightColumn = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildExplainerBox(
+                  title: '⚠️ Anticipated Objections & Resistance',
+                  icon: Icons.warning_amber_rounded,
+                  iconColor: AppTheme.error,
+                  items: segment.potentialObjections,
+                  emptyText: 'No critical objections flagged.',
+                ),
+                const SizedBox(height: 12),
+                _buildExplainerBox(
+                  title: '📋 Missing Information That Could Improve Fit',
+                  icon: Icons.help_outline,
+                  iconColor: AppTheme.warning,
+                  items: segment.missingInformation,
+                  emptyText: 'Project specification is comprehensive; no missing criteria detected.',
+                ),
+              ],
+            );
+
+            return isWide
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: leftColumn),
+                      const SizedBox(width: 14),
+                      Expanded(child: rightColumn),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      leftColumn,
+                      const SizedBox(height: 12),
+                      rightColumn,
+                    ],
+                  );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildExplainerBox({
+    required String title,
+    required IconData icon,
+    required Color iconColor,
+    List<String>? items,
+    Widget? customContent,
+    String? emptyText,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppTheme.cardBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: iconColor),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (customContent != null)
+            customContent
+          else if (items != null && items.isNotEmpty)
+            ...items.map((item) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('• ', style: TextStyle(fontWeight: FontWeight.bold, color: iconColor)),
+                      Expanded(
+                        child: Text(
+                          item,
+                          style: const TextStyle(fontSize: 11, height: 1.4),
+                        ),
+                      ),
+                    ],
+                  ),
+                ))
+          else if (emptyText != null)
+            Text(
+              emptyText,
+              style: const TextStyle(fontSize: 11, color: AppTheme.textHint, fontStyle: FontStyle.italic),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
   //  Interstate Demographic Strategy View
   // ───────────────────────────────────────────────────────────
 
@@ -1175,16 +1523,19 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
                   children: [
                     const Icon(Icons.map, color: AppTheme.primary, size: 22),
                     const SizedBox(width: AppTheme.spacingSm),
-                    Text(
-                      'Interstate Demographic & Cross-Border Migration Strategy',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                    Expanded(
+                      child: Text(
+                        'Interstate Demographic & Cross-Border Migration Strategy',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 6),
                 Text(
                   'Malaysian property buyers are not confined to the host state (${project.state}). '
-                  'Below is a strategic market sizing of outbound buyer pools who can be recruited for ${project.name}.',
+                  'Below is a strategic market sizing of outbound buyer pools who can be recruited for ${project.name}. '
+                  'All geographic insights represent strategic targeting models, not verified migration statistics or actual property demand.',
                   style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary),
                 ),
               ],
@@ -1195,7 +1546,7 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
 
         ...geoTargets.map((geo) {
           return Card(
-            margin: const EdgeInsets.only(bottom: AppTheme.spacingMd),
+            margin: const EdgeInsets.only(bottom: AppTheme.spacingLg),
             child: Padding(
               padding: const EdgeInsets.all(AppTheme.spacingLg),
               child: Column(
@@ -1213,9 +1564,18 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
                       ),
                       const SizedBox(width: AppTheme.spacingMd),
                       Expanded(
-                        child: Text(
-                          geo.state,
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              geo.state,
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                            const Text(
+                              'Target Regional Market',
+                              style: TextStyle(fontSize: 11, color: AppTheme.textHint),
+                            ),
+                          ],
                         ),
                       ),
                       Container(
@@ -1235,9 +1595,11 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
+
+                  // 1. Why it is a potential target
                   const Text(
-                    'Strategic Migration & Investment Rationale:',
+                    '📍 Why This State Is A Potential Target:',
                     style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
                   ),
                   const SizedBox(height: 4),
@@ -1246,8 +1608,120 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
                     style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary, height: 1.4),
                   ),
                   const SizedBox(height: 12),
+
+                  // 2. Marketing Opportunity
+                  if (geo.marketingOpportunity.isNotEmpty) ...[
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppTheme.secondary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: AppTheme.secondary.withValues(alpha: 0.25)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.trending_up, size: 16, color: AppTheme.secondary),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Marketing Opportunity:',
+                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.secondary),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  geo.marketingOpportunity,
+                                  style: const TextStyle(fontSize: 12, color: AppTheme.textPrimary, height: 1.35),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // 3. Suggested Campaign Angle
+                  if (geo.campaignAngle.isNotEmpty) ...[
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primary.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.campaign, size: 16, color: AppTheme.primary),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Suggested Campaign Angle:',
+                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.primary),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '"${geo.campaignAngle}"',
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.primary, fontStyle: FontStyle.italic),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // 4. Assumptions Behind the Recommendation
+                  if (geo.assumptions.isNotEmpty) ...[
+                    const Text(
+                      '📋 Assumptions Behind This Recommendation:',
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppTheme.background,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: AppTheme.cardBorder),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: geo.assumptions.map((assumption) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('• ', style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textHint)),
+                                Expanded(
+                                  child: Text(
+                                    assumption,
+                                    style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary, height: 1.35),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // 5. Recommended Acquisition Tactics
                   const Text(
-                    'Recommended Acquisition Tactics:',
+                    '👉 Recommended Acquisition Tactics:',
                     style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
                   ),
                   const SizedBox(height: 6),
@@ -1256,11 +1730,18 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('👉 ', style: TextStyle(fontSize: 12)),
+                            const Text('• ', style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primary)),
                             Expanded(child: Text(tactic, style: const TextStyle(fontSize: 12))),
                           ],
                         ),
                       )),
+                  const SizedBox(height: 8),
+
+                  // Disclosure Footer
+                  const Text(
+                    '⚠️ Strategic targeting assumption • Not verified census migration statistics',
+                    style: TextStyle(fontSize: 10, color: AppTheme.textHint, fontStyle: FontStyle.italic),
+                  ),
                 ],
               ),
             ),
