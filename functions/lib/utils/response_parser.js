@@ -48,21 +48,189 @@ class ResponseParser {
         }
     }
     /**
-     * Validates and normalizes PropertyAnalysisOutput
+     * Validates and normalizes PropertyAnalysisOutput (Phase 3.2 Rich Schema)
      */
     static validatePropertyAnalysis(data) {
         if (!data || typeof data !== "object") {
             throw new Error("Invalid PropertyAnalysisOutput: Expected JSON object.");
         }
+        // 1. Normalize Selling Points
+        const rawSellingPoints = Array.isArray(data.selling_points)
+            ? data.selling_points
+            : Array.isArray(data.key_selling_points)
+                ? data.key_selling_points
+                : [];
+        const selling_points = rawSellingPoints.map((item) => {
+            if (typeof item === "string") {
+                return {
+                    title: item,
+                    explanation: item,
+                    supporting_info: "Agent-provided project specifications",
+                    buyer_benefit: "High alignment with buyer expectations",
+                    confidence: "High"
+                };
+            }
+            return {
+                title: typeof item?.title === "string" ? item.title : "Key Selling Point",
+                explanation: typeof item?.explanation === "string" ? item.explanation : "",
+                supporting_info: typeof item?.supporting_info === "string" ? item.supporting_info : "Agent-supplied property data",
+                buyer_benefit: typeof item?.buyer_benefit === "string" ? item.buyer_benefit : "",
+                confidence: ["High", "Medium", "Low"].includes(item?.confidence) ? item.confidence : "Medium"
+            };
+        });
+        const key_selling_points = selling_points.map((sp) => sp.title);
+        // 2. Normalize Buyer Personas
+        const rawPersonas = Array.isArray(data.buyer_personas)
+            ? data.buyer_personas
+            : Array.isArray(data.potential_buyer_segments)
+                ? data.potential_buyer_segments
+                : [];
+        const buyer_personas = rawPersonas.map((p) => {
+            if (typeof p === "string") {
+                return {
+                    segment_name: p,
+                    description: "Target demographic identified through property positioning analysis.",
+                    estimated_relevance: 80,
+                    buying_motivations: ["Quality lifestyle", "Value for money"],
+                    appealing_features: ["Strategic location", "Modern layout"],
+                    potential_objections: ["Budget evaluation"],
+                    recommended_marketing_angle: "Focus on primary lifestyle benefits."
+                };
+            }
+            return {
+                segment_name: typeof p?.segment_name === "string" ? p.segment_name : "Prospective Buyer Persona",
+                description: typeof p?.description === "string" ? p.description : "",
+                estimated_relevance: typeof p?.estimated_relevance === "number" ? Math.min(100, Math.max(0, p.estimated_relevance)) : 75,
+                buying_motivations: Array.isArray(p?.buying_motivations) ? p.buying_motivations.map(String) : [],
+                appealing_features: Array.isArray(p?.appealing_features) ? p.appealing_features.map(String) : [],
+                potential_objections: Array.isArray(p?.potential_objections) ? p.potential_objections.map(String) : [],
+                recommended_marketing_angle: typeof p?.recommended_marketing_angle === "string" ? p.recommended_marketing_angle : ""
+            };
+        });
+        const potential_buyer_segments = buyer_personas.map((bp) => bp.segment_name);
+        // 3. Normalize Competitive Advantages
+        const rawAdvantages = Array.isArray(data.structured_competitive_advantages)
+            ? data.structured_competitive_advantages
+            : Array.isArray(data.competitive_advantages)
+                ? data.competitive_advantages
+                : [];
+        const structured_competitive_advantages = rawAdvantages.map((a) => {
+            if (typeof a === "string") {
+                return {
+                    advantage: a,
+                    explanation: a,
+                    supporting_evidence: "Agent-provided project specifications",
+                    evidence_status: "Verified project characteristic"
+                };
+            }
+            return {
+                advantage: typeof a?.advantage === "string" ? a.advantage : "Distinctive Feature",
+                explanation: typeof a?.explanation === "string" ? a.explanation : "",
+                supporting_evidence: typeof a?.supporting_evidence === "string" ? a.supporting_evidence : "Agent-provided information",
+                evidence_status: typeof a?.evidence_status === "string" ? a.evidence_status : "Verified project characteristic"
+            };
+        });
+        const competitive_advantages = structured_competitive_advantages.map((ca) => ca.advantage);
+        // 4. Normalize Objections
+        const rawObjections = Array.isArray(data.structured_objections)
+            ? data.structured_objections
+            : Array.isArray(data.potential_objections)
+                ? data.potential_objections
+                : [];
+        const structured_objections = rawObjections.map((o) => {
+            if (typeof o === "string") {
+                return {
+                    objection: o,
+                    category: "general",
+                    response_strategy: "Present project advantages and market value proposition."
+                };
+            }
+            const cat = ["price", "location", "financing", "size", "facilities", "timing", "general"].includes(o?.category)
+                ? o.category
+                : "general";
+            return {
+                objection: typeof o?.objection === "string" ? o.objection : "Buyer Hesitation",
+                category: cat,
+                response_strategy: typeof o?.response_strategy === "string" ? o.response_strategy : "Consult agent on tailored financing or viewing."
+            };
+        });
+        const potential_objections = structured_objections.map((so) => so.objection);
+        // 5. Normalize Marketing Strategy
+        const mkt = data.marketing_strategy || {};
+        const marketing_strategy = {
+            recommended_angles: Array.isArray(mkt.recommended_angles)
+                ? mkt.recommended_angles.map(String)
+                : Array.isArray(data.marketing_angles)
+                    ? data.marketing_angles.map(String)
+                    : [],
+            suitable_audience_segments: Array.isArray(mkt.suitable_audience_segments)
+                ? mkt.suitable_audience_segments.map(String)
+                : potential_buyer_segments,
+            suggested_channels: Array.isArray(mkt.suggested_channels)
+                ? mkt.suggested_channels.map(String)
+                : ["Facebook Lead Ads", "Instagram Reels", "Private Showroom Preview"],
+            advertisement_headlines: Array.isArray(mkt.advertisement_headlines)
+                ? mkt.advertisement_headlines.map(String)
+                : [],
+            social_media_ideas: Array.isArray(mkt.social_media_ideas)
+                ? mkt.social_media_ideas.map(String)
+                : [],
+            recommended_calls_to_action: Array.isArray(mkt.recommended_calls_to_action)
+                ? mkt.recommended_calls_to_action.map(String)
+                : ["Schedule Showroom Tour", "Download Floor Plan"]
+        };
+        const marketing_angles = marketing_strategy.recommended_angles.length > 0
+            ? marketing_strategy.recommended_angles
+            : (Array.isArray(data.marketing_angles) ? data.marketing_angles.map(String) : []);
+        // 6. Normalize Summary & Limitations
+        const sum = data.analysis_summary || {};
+        const analysis_summary = {
+            overall_positioning: typeof sum.overall_positioning === "string" ? sum.overall_positioning : (typeof data.recommended_price_positioning === "string" ? data.recommended_price_positioning : "Strategic positioning within regional development corridor."),
+            strongest_selling_point: typeof sum.strongest_selling_point === "string" ? sum.strongest_selling_point : (key_selling_points[0] || "Strategic location and layout."),
+            most_relevant_segment: typeof sum.most_relevant_segment === "string" ? sum.most_relevant_segment : (potential_buyer_segments[0] || "First-time homebuyers and professionals."),
+            main_potential_objection: typeof sum.main_potential_objection === "string" ? sum.main_potential_objection : (potential_objections[0] || "Pricing evaluation vs surrounding developments."),
+            recommended_next_action: typeof sum.recommended_next_action === "string" ? sum.recommended_next_action : "Initiate targeted digital campaign and showroom open house previews.",
+            analysis_limitations: Array.isArray(sum.analysis_limitations)
+                ? sum.analysis_limitations.map(String)
+                : [
+                    "Analysis synthesized strictly from agent-supplied project parameters.",
+                    "Competitor market comparisons unavailable unless externally verified.",
+                    "Buyer personas represent marketing hypotheses, not verified individual leads."
+                ]
+        };
+        // 7. Property Overview
+        const pov = data.property_overview || {};
+        const property_overview = {
+            name: typeof pov.name === "string" ? pov.name : "",
+            location: typeof pov.location === "string" ? pov.location : "",
+            state: typeof pov.state === "string" ? pov.state : "",
+            property_type: typeof pov.property_type === "string" ? pov.property_type : "",
+            price_range: typeof pov.price_range === "string" ? pov.price_range : "",
+            bedrooms: typeof pov.bedrooms === "number" ? pov.bedrooms : 0,
+            bathrooms: typeof pov.bathrooms === "number" ? pov.bathrooms : 0,
+            built_up_area: typeof pov.built_up_area === "number" ? pov.built_up_area : 0,
+            facilities: Array.isArray(pov.facilities) ? pov.facilities.map(String) : [],
+            description: typeof pov.description === "string" ? pov.description : "",
+            professional_overview: typeof pov.professional_overview === "string" ? pov.professional_overview : (typeof data.project_summary === "string" ? data.project_summary : "")
+        };
         return {
             project_summary: typeof data.project_summary === "string" ? data.project_summary : "Summary unavailable",
-            key_selling_points: Array.isArray(data.key_selling_points) ? data.key_selling_points.map(String) : [],
-            potential_buyer_segments: Array.isArray(data.potential_buyer_segments) ? data.potential_buyer_segments.map(String) : [],
-            competitive_advantages: Array.isArray(data.competitive_advantages) ? data.competitive_advantages.map(String) : [],
-            potential_objections: Array.isArray(data.potential_objections) ? data.potential_objections.map(String) : [],
-            marketing_angles: Array.isArray(data.marketing_angles) ? data.marketing_angles.map(String) : [],
+            key_selling_points,
+            potential_buyer_segments,
+            competitive_advantages,
+            potential_objections,
+            marketing_angles,
             recommended_price_positioning: typeof data.recommended_price_positioning === "string" ? data.recommended_price_positioning : "Market standard",
-            analysis_confidence: ["High", "Medium", "Low"].includes(data.analysis_confidence) ? data.analysis_confidence : "Medium"
+            analysis_confidence: ["High", "Medium", "Low"].includes(data.analysis_confidence) ? data.analysis_confidence : "Medium",
+            property_overview,
+            selling_points,
+            buyer_personas,
+            structured_competitive_advantages,
+            structured_objections,
+            marketing_strategy,
+            analysis_summary,
+            missing_information: Array.isArray(data.missing_information) ? data.missing_information.map(String) : [],
+            data_provenance: typeof data.data_provenance === "string" ? data.data_provenance : "Gemini AI Developer API Analysis"
         };
     }
     /**

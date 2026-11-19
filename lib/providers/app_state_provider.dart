@@ -27,8 +27,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/demo_data_service.dart';
 import '../services/ai_service.dart';
-import '../services/matching_service.dart';
 import '../services/marketing_service.dart';
+import '../services/ai_backend_service.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 class AppStateProvider extends ChangeNotifier {
   final ProjectRepository _projectRepository;
@@ -38,6 +39,27 @@ class AppStateProvider extends ChangeNotifier {
   final CampaignRepository _campaignRepository;
   final ConsentRepository _consentRepository;
   final AuthRepository _authRepository;
+  AIBackendService _aiService;
+
+  PropertyAnalysisResult? _currentPropertyAnalysis;
+  PropertyAnalysisResult? get currentPropertyAnalysis => _currentPropertyAnalysis;
+  bool _isAnalyzingProperty = false;
+  bool get isAnalyzingProperty => _isAnalyzingProperty;
+  String? _propertyAnalysisError;
+  String? get propertyAnalysisError => _propertyAnalysisError;
+  final Map<String, PropertyAnalysisResult> _cachedPropertyAnalyses = {};
+  Map<String, PropertyAnalysisResult> get cachedPropertyAnalyses =>
+      Map.unmodifiable(_cachedPropertyAnalyses);
+  AIBackendService get aiService => _aiService;
+  bool get isUsingAIFallback => _aiService.isFallbackActive;
+  String? get lastAIError => _aiService.lastError;
+  String get currentAIModel => 'gemini-2.5-flash';
+
+  void setAIService(AIBackendService service) {
+    _aiService = service;
+    _cachedPropertyAnalyses.clear();
+    notifyListeners();
+  }
 
   StreamSubscription<AuthUser?>? _authSubscription;
   int _authSessionId = 0;
@@ -247,6 +269,7 @@ class AppStateProvider extends ChangeNotifier {
     CampaignRepository? campaignRepository,
     ConsentRepository? consentRepository,
     AuthRepository? authRepository,
+    AIBackendService? aiService,
   })  : _projectRepository = projectRepository ??
             InMemoryProjectRepository(DemoDataService.getInitialProjects()),
         _buyerRepository = buyerRepository ?? InMemoryBuyerRepository(),
@@ -258,7 +281,8 @@ class AppStateProvider extends ChangeNotifier {
             campaignRepository ?? InMemoryCampaignRepository(),
         _consentRepository =
             consentRepository ?? InMemoryConsentRepository(),
-        _authRepository = authRepository ?? InMemoryAuthRepository() {
+        _authRepository = authRepository ?? InMemoryAuthRepository(),
+        _aiService = aiService ?? const LocalRuleBasedAIService() {
     _activeAuthUid = _authRepository.currentUser?.uid;
     _initData();
     _authSubscription = _authRepository.authStateChanges().listen(_onAuthStateChanged);
@@ -269,6 +293,8 @@ class AppStateProvider extends ChangeNotifier {
   factory AppStateProvider.firebase({
     FirebaseAuth? firebaseAuth,
     FirebaseFirestore? firestore,
+    FirebaseFunctions? functions,
+    AIBackendService? aiService,
   }) {
     return AppStateProvider(
       projectRepository: FirestoreProjectRepository(firestore: firestore),
@@ -281,6 +307,7 @@ class AppStateProvider extends ChangeNotifier {
         firebaseAuth: firebaseAuth,
         firestore: firestore,
       ),
+      aiService: aiService ?? CloudFunctionsAIService(functions: functions),
     );
   }
 
@@ -330,6 +357,10 @@ class AppStateProvider extends ChangeNotifier {
     _generatedMarketingContent = null;
     _geoStrategies = {};
     _segmentMarketingContent = {};
+    _currentPropertyAnalysis = null;
+    _cachedPropertyAnalyses.clear();
+    _isAnalyzingProperty = false;
+    _propertyAnalysisError = null;
     _hasGeneratedDemoBuyers = false;
     _isLoadingData = false;
     _cloudSyncError = null;
@@ -460,6 +491,8 @@ class AppStateProvider extends ChangeNotifier {
   // --- PROJECT ACTIONS ---
   void selectProject(ProjectModel project) {
     _selectedProject = project;
+    _currentPropertyAnalysis = _cachedPropertyAnalyses[project.id];
+    _propertyAnalysisError = null;
     // Clear project-specific AI results
     _audienceSegments = [];
     _matches = [];
@@ -515,8 +548,10 @@ class AppStateProvider extends ChangeNotifier {
     final oldProject = _projects[index];
     final wasSelected = _selectedProject?.id == projectId;
     _projects.removeAt(index);
+    _cachedPropertyAnalyses.remove(projectId);
     if (wasSelected) {
       _selectedProject = _projects.isNotEmpty ? _projects.first : null;
+      _currentPropertyAnalysis = null;
       _audienceSegments = [];
       _matches = [];
     }
@@ -628,7 +663,7 @@ class AppStateProvider extends ChangeNotifier {
     // Fast asynchronous simulation for sleek UI responsiveness
     await Future.delayed(const Duration(milliseconds: 600));
 
-    _audienceSegments = AIService.discoverAudienceSegments(targetProject);
+    _audienceSegments = await _aiService.discoverAudienceSegments(targetProject);
 
     // Auto-generate geographic strategies for all segments
     for (final seg in _audienceSegments) {
@@ -639,6 +674,106 @@ class AppStateProvider extends ChangeNotifier {
       _selectedAudienceForMarketing = _audienceSegments.first;
     }
     _isDiscoveringAudience = false;
+    notifyListeners();
+  }
+
+  /// Validates that a project has sufficient data for high-quality AI analysis.
+  String? validateProjectForAnalysis(ProjectModel project) {
+    if (project.name.trim().isEmpty) {
+      return 'Project name is required for AI property analysis.';
+    }
+    if (project.location.trim().isEmpty) {
+      return 'Project location is required for AI property analysis.';
+    }
+    if (project.propertyType.trim().isEmpty) {
+      return 'Property type is required for AI property analysis.';
+    }
+    if (project.startingPrice <= 0) {
+      return 'A valid starting price (greater than RM 0) is required for AI property analysis.';
+    }
+    return null;
+  }
+
+  /// Deep Property Analysis & Intelligence (Phase 3.2)
+  ///
+  /// Analyzes selling points, buyer personas, competitive advantages,
+  /// buyer objections, and marketing strategy. Supports deterministic caching
+  /// and explicit forced regeneration.
+  Future<PropertyAnalysisResult?> runPropertyAnalysis({
+    ProjectModel? project,
+    bool forceRefresh = false,
+  }) async {
+    final targetProject = project ?? _selectedProject;
+    if (targetProject == null) {
+      _propertyAnalysisError = 'No project selected for property analysis.';
+      notifyListeners();
+      return null;
+    }
+
+    final validationError = validateProjectForAnalysis(targetProject);
+    if (validationError != null) {
+      _propertyAnalysisError = validationError;
+      notifyListeners();
+      return null;
+    }
+
+    // 1. Check in-memory session cache first if not forcing refresh
+    if (!forceRefresh && _cachedPropertyAnalyses.containsKey(targetProject.id)) {
+      _currentPropertyAnalysis = _cachedPropertyAnalyses[targetProject.id];
+      _propertyAnalysisError = null;
+      notifyListeners();
+      return _currentPropertyAnalysis;
+    }
+
+    // 2. If not forcing refresh, attempt Firestore remote cache lookup
+    if (!forceRefresh) {
+      try {
+        final cached = await _aiService.getCachedPropertyAnalysis(targetProject.id);
+        if (cached != null) {
+          _currentPropertyAnalysis = cached;
+          _cachedPropertyAnalyses[targetProject.id] = cached;
+          _propertyAnalysisError = null;
+          notifyListeners();
+          return cached;
+        }
+      } catch (_) {
+        // Fall through to run live/rule generation
+      }
+    }
+
+    _isAnalyzingProperty = true;
+    _propertyAnalysisError = null;
+    notifyListeners();
+
+    try {
+      final result = await _aiService.analyzeProperty(
+        targetProject,
+        forceRefresh: forceRefresh,
+      );
+      _currentPropertyAnalysis = result;
+      _cachedPropertyAnalyses[targetProject.id] = result;
+      _propertyAnalysisError = null;
+      return result;
+    } catch (e) {
+      _propertyAnalysisError = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+      return null;
+    } finally {
+      _isAnalyzingProperty = false;
+      notifyListeners();
+    }
+  }
+
+  /// Clears the cached property analysis for a given project or currently active project.
+  void clearPropertyAnalysis({String? projectId}) {
+    if (projectId != null) {
+      _cachedPropertyAnalyses.remove(projectId);
+      if (_selectedProject?.id == projectId) {
+        _currentPropertyAnalysis = null;
+      }
+    } else {
+      _currentPropertyAnalysis = null;
+    }
+    _propertyAnalysisError = null;
     notifyListeners();
   }
 
@@ -653,7 +788,11 @@ class AppStateProvider extends ChangeNotifier {
     await Future.delayed(const Duration(milliseconds: 400));
 
     _segmentMarketingContent[segment.id] =
-        AIService.generateSegmentMarketingContent(_selectedProject!, segment);
+        await _aiService.generateMarketingContent(
+      project: _selectedProject!,
+      segment: segment,
+      channel: 'Facebook Ad',
+    );
 
     _isGeneratingSegmentContent = false;
     _generatingContentForSegmentId = null;
@@ -675,9 +814,9 @@ class AppStateProvider extends ChangeNotifier {
 
     await Future.delayed(const Duration(milliseconds: 700));
 
-    _matches = MatchingService.matchBuyersWithProject(
-      buyers: _buyers,
+    _matches = await _aiService.matchBuyers(
       project: targetProject,
+      buyers: _buyers,
     );
 
     if (_matches.isNotEmpty) {

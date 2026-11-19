@@ -18,6 +18,8 @@ class MatchModel {
   final List<String> matchingFactors;
   final List<String> missingInformation;
   final List<String> potentialConcerns;
+  final bool isLiveAI;
+  final String calculationSource;
   final DateTime calculatedAt;
 
   MatchModel({
@@ -28,6 +30,8 @@ class MatchModel {
     required this.buyerName,
     required this.projectName,
     this.isDemoBuyer = false,
+    this.isLiveAI = false,
+    this.calculationSource = 'Rule-based Fallback Engine',
     required this.overallMatchPercentage,
     required this.budgetScore,
     required this.locationScore,
@@ -61,6 +65,8 @@ class MatchModel {
       'matchingFactors': matchingFactors,
       'missingInformation': missingInformation,
       'potentialConcerns': potentialConcerns,
+      'isLiveAI': isLiveAI,
+      'calculationSource': calculationSource,
       'calculatedAt': calculatedAt.toIso8601String(),
     };
   }
@@ -74,6 +80,8 @@ class MatchModel {
       buyerName: map['buyerName'] as String? ?? '',
       projectName: map['projectName'] as String? ?? '',
       isDemoBuyer: map['isDemoBuyer'] as bool? ?? false,
+      isLiveAI: map['isLiveAI'] as bool? ?? false,
+      calculationSource: map['calculationSource'] as String? ?? 'Rule-based Fallback Engine',
       overallMatchPercentage:
           (map['overallMatchPercentage'] as num?)?.toDouble() ?? 0.0,
       budgetScore: (map['budgetScore'] as num?)?.toDouble() ?? 0.0,

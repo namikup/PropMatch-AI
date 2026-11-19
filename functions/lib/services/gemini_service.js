@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.GeminiService = void 0;
-const generative_ai_1 = require("@google/generative-ai");
+const genai_1 = require("@google/genai");
 const gemini_config_1 = require("../config/gemini.config");
 const response_parser_1 = require("../utils/response_parser");
 const logger_1 = require("../utils/logger");
@@ -12,27 +12,23 @@ class GeminiService {
         if (!config.apiKey) {
             throw new Error("GEMINI_API_KEY is not configured in environment or secrets.");
         }
-        const genAI = new generative_ai_1.GoogleGenerativeAI(config.apiKey);
-        const primaryModel = preferredModel || config.primaryModel;
+        const ai = new genai_1.GoogleGenAI({ apiKey: config.apiKey });
+        const primaryModel = preferredModel
+            ? (0, gemini_config_1.validateModelIdentifier)(preferredModel, "Preferred model")
+            : config.primaryModel;
         const fallbackModel = config.fallbackModel;
+        // Validate that automatic fallback adheres to cost control policy
+        if (primaryModel !== fallbackModel) {
+            (0, gemini_config_1.validateFallbackCostPolicy)(primaryModel, fallbackModel, config.allowExpensiveFallback);
+        }
         let lastError;
-        const modelsToTry = [primaryModel, fallbackModel];
+        const modelsToTry = primaryModel === fallbackModel ? [primaryModel] : [primaryModel, fallbackModel];
         for (const modelName of modelsToTry) {
             let attempts = 0;
             const maxAttempts = config.maxRetries + 1;
             while (attempts < maxAttempts) {
                 attempts++;
                 try {
-                    const generativeModel = genAI.getGenerativeModel({
-                        model: modelName,
-                        generationConfig: {
-                            responseMimeType: "application/json",
-                            temperature: config.temperature,
-                            topP: config.topP,
-                            maxOutputTokens: config.maxOutputTokens
-                        },
-                        systemInstruction
-                    });
                     let timer = null;
                     // Timeout promise
                     const timeoutPromise = new Promise((_, reject) => {
@@ -40,12 +36,21 @@ class GeminiService {
                             reject(new Error(`Gemini API call timed out after ${config.timeoutMs}ms.`));
                         }, config.timeoutMs);
                     });
-                    // Execution promise
+                    // Execution promise via official @google/genai SDK
                     const executionPromise = (async () => {
-                        const result = await generativeModel.generateContent(prompt);
-                        const response = await result.response;
+                        const response = await ai.models.generateContent({
+                            model: modelName,
+                            contents: prompt,
+                            config: {
+                                systemInstruction,
+                                responseMimeType: "application/json",
+                                temperature: config.temperature,
+                                topP: config.topP,
+                                maxOutputTokens: config.maxOutputTokens
+                            }
+                        });
                         return {
-                            text: response.text(),
+                            text: response.text || "",
                             usage: response.usageMetadata
                         };
                     })();
@@ -73,6 +78,16 @@ class GeminiService {
                     lastError = err;
                     const errMsg = err instanceof Error ? err.message : String(err);
                     logger_1.Logger.warn(`Gemini attempt ${attempts}/${maxAttempts} failed on ${modelName}: ${errMsg}`);
+                    // Detect model-unavailable errors (404 / NOT_FOUND / unreleased / deprecated)
+                    const isModelUnavailable = errMsg.includes("404") ||
+                        errMsg.includes("not found") ||
+                        errMsg.includes("is not supported") ||
+                        errMsg.includes("NOT_FOUND");
+                    if (isModelUnavailable) {
+                        logger_1.Logger.error(`Gemini model '${modelName}' is unavailable or unverified on provider`, { error: errMsg });
+                        // Model does not exist or is deprecated; retrying same model is futile
+                        break;
+                    }
                     // Determine if retryable
                     const isRetryable = errMsg.includes("429") ||
                         errMsg.includes("503") ||
@@ -89,19 +104,27 @@ class GeminiService {
                     }
                 }
             }
-            logger_1.Logger.warn(`Switching to fallback model after failures on ${modelName}`);
+            if (modelName === primaryModel && modelsToTry.length > 1) {
+                logger_1.Logger.warn(`Switching to fallback model '${fallbackModel}' after failures on ${primaryModel}`);
+            }
         }
         throw lastError || new Error("Failed to execute Gemini AI generation.");
     }
     /**
-     * Module A — Deep Property Analysis
+     * Module A — Deep Property Analysis & Selling Strategy (Phase 3.2)
      */
     static async analyzeProperty(project) {
         const systemInstruction = `You are an elite Malaysian real estate investment strategist and marketing analyst for PropMatch AI.
 Your role is to deeply analyze Malaysian property project characteristics and return comprehensive, actionable strategic insights.
 Always return structured JSON adhering strictly to the required schema. Never include conversational filler.
-Consider Malaysian market dynamics, state-level pricing (e.g. Penang, Selangor, KL, Johor), property types, and demographic trends.`;
-        const prompt = `Perform a comprehensive property analysis for the following Malaysian development:
+Consider Malaysian market dynamics, state-level pricing (e.g. Penang, Selangor, KL, Johor), property types, and demographic trends.
+
+EVIDENCE & RELIABILITY RULES:
+1. Distinguish verified project information, agent-provided data, and AI-generated hypotheses.
+2. Never fabricate amenities, travel distances, developer reputation, appreciation statistics, rental yields, or competitor prices.
+3. If competitor data is absent, explicitly state that competitor comparison is unavailable.
+4. Buyer personas represent marketing hypotheses, never verified individuals or sensitive demographics.`;
+        const prompt = `Perform a comprehensive Phase 3.2 property analysis and selling strategy for this Malaysian development:
 Project Name: ${project.name}
 Developer: ${project.developer}
 Location: ${project.location}, ${project.state}
@@ -114,16 +137,94 @@ Key Facilities: ${project.facilities.join(", ") || "Standard facilities"}
 Nearby Amenities: ${project.nearbyAmenities.join(", ") || "Standard infrastructure"}
 Project Description: ${project.description}
 
-Provide output in JSON matching this exact structure:
+Provide JSON adhering to this exact schema:
 {
   "project_summary": "Concise 2-3 sentence overview highlighting the project's market position",
-  "key_selling_points": ["Point 1", "Point 2", "Point 3", "Point 4"],
-  "potential_buyer_segments": ["Segment A", "Segment B", "Segment C"],
-  "competitive_advantages": ["Advantage 1", "Advantage 2", "Advantage 3"],
+  "key_selling_points": ["Short point 1", "Short point 2", "Short point 3"],
+  "potential_buyer_segments": ["Segment 1", "Segment 2", "Segment 3"],
+  "competitive_advantages": ["Advantage 1", "Advantage 2"],
   "potential_objections": ["Objection 1", "Objection 2"],
   "marketing_angles": ["Angle 1", "Angle 2", "Angle 3"],
   "recommended_price_positioning": "Strategic pricing recommendation based on surrounding market",
-  "analysis_confidence": "High"
+  "analysis_confidence": "High",
+
+  "property_overview": {
+    "name": "${project.name}",
+    "location": "${project.location}",
+    "state": "${project.state}",
+    "property_type": "${project.propertyType}",
+    "price_range": "RM${project.startingPrice.toLocaleString()} - RM${project.maximumPrice.toLocaleString()}",
+    "bedrooms": ${project.bedrooms},
+    "bathrooms": ${project.bathrooms},
+    "built_up_area": ${project.builtUpArea},
+    "facilities": ${JSON.stringify(project.facilities)},
+    "description": ${JSON.stringify(project.description)},
+    "professional_overview": "Comprehensive overview highlighting architectural type, lifestyle features, and regional value."
+  },
+
+  "selling_points": [
+    {
+      "title": "Clear selling point headline",
+      "explanation": "Why this matters in the current market",
+      "supporting_info": "Exact project attribute supporting this (e.g. Starting price RM${project.startingPrice})",
+      "buyer_benefit": "Direct tangible benefit to the buyer",
+      "confidence": "High"
+    }
+  ],
+
+  "buyer_personas": [
+    {
+      "segment_name": "Specific persona label (e.g. Bayan Lepas Tech Executives)",
+      "description": "Background, work profile, and life stage",
+      "estimated_relevance": 85,
+      "buying_motivations": ["Reason 1", "Reason 2"],
+      "appealing_features": ["Feature A", "Feature B"],
+      "potential_objections": ["Concern 1", "Concern 2"],
+      "recommended_marketing_angle": "Tailored messaging hook"
+    }
+  ],
+
+  "structured_competitive_advantages": [
+    {
+      "advantage": "Advantage title",
+      "explanation": "Detailed explanation based on provided features",
+      "supporting_evidence": "Evidence from agent specifications",
+      "evidence_status": "Verified project characteristic"
+    }
+  ],
+
+  "structured_objections": [
+    {
+      "objection": "Likely objection or hesitation",
+      "category": "price",
+      "response_strategy": "Professional agent script and response strategy"
+    }
+  ],
+
+  "marketing_strategy": {
+    "recommended_angles": ["Angle 1", "Angle 2", "Angle 3"],
+    "suitable_audience_segments": ["Segment 1", "Segment 2"],
+    "suggested_channels": ["Facebook Lead Ads", "Instagram Reels", "Private Preview"],
+    "advertisement_headlines": ["Headline 1", "Headline 2", "Headline 3"],
+    "social_media_ideas": ["Content concept 1", "Content concept 2"],
+    "recommended_calls_to_action": ["Book Showroom Preview", "Download Master Floorplan"]
+  },
+
+  "analysis_summary": {
+    "overall_positioning": "Summary of positioning in the regional market",
+    "strongest_selling_point": "The single most compelling attribute",
+    "most_relevant_segment": "The primary persona to prioritize in ad spend",
+    "main_potential_objection": "Primary friction point agents must prepare for",
+    "recommended_next_action": "Actionable next step for the property agent",
+    "analysis_limitations": [
+      "Analysis synthesized strictly from agent-supplied project parameters.",
+      "Competitor comparisons unavailable unless externally verified.",
+      "Buyer personas represent marketing hypotheses, not verified individual leads."
+    ]
+  },
+
+  "missing_information": [],
+  "data_provenance": "Google Gen AI (@google/genai) Analysis"
 }`;
         return this.executeWithTimeoutAndRetry(prompt, systemInstruction, (raw) => {
             const parsed = response_parser_1.ResponseParser.parseCleanJson(raw);

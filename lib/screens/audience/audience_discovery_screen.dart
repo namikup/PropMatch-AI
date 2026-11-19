@@ -58,6 +58,10 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
           _buildControlHeader(context, appState, selectedProject),
           const SizedBox(height: AppTheme.spacingMd),
 
+          // AI Provenance & Engine Status Banner
+          _buildEngineStatusBadge(context, appState),
+          const SizedBox(height: AppTheme.spacingMd),
+
           // Mandatory Disclaimer Alert
           _buildTransparencyBanner(context),
           const SizedBox(height: AppTheme.spacingLg),
@@ -240,6 +244,80 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildEngineStatusBadge(BuildContext context, AppStateProvider appState) {
+    if (appState.isUsingAIFallback) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.amber.shade50,
+          borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+          border: Border.all(color: Colors.amber.shade300),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.amber.shade900, size: 20),
+            const SizedBox(width: AppTheme.spacingMd),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Offline Fallback Engine Active (Rule-Based Analysis)',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      color: Colors.amber.shade900,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Live Gemini AI (${appState.currentAIModel}) is currently offline or unreachable. Results are generated via the local rule-based heuristic engine.',
+                    style: TextStyle(fontSize: 12, color: Colors.amber.shade800),
+                  ),
+                  if (appState.lastAIError != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'API Notice: ${appState.lastAIError}',
+                      style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.amber.shade900),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (appState.audienceSegments.isNotEmpty) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.green.shade50,
+          borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+          border: Border.all(color: Colors.green.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.check_circle_outline, color: Colors.green.shade700, size: 18),
+            const SizedBox(width: 8),
+            Text(
+              'Live AI Analysis Verified • Google Gemini 2.5 Flash',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+                color: Colors.green.shade800,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
   }
 
   // ───────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import '../../config/constants.dart';
 import '../../models/project_model.dart';
 import '../../providers/app_state_provider.dart';
 import '../../providers/navigation_provider.dart';
+import 'property_analysis_screen.dart';
 
 class ProjectsScreen extends StatefulWidget {
   const ProjectsScreen({super.key});
@@ -179,7 +180,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     crossAxisCount: crossAxisCount,
                     crossAxisSpacing: AppTheme.spacingLg,
                     mainAxisSpacing: AppTheme.spacingLg,
-                    childAspectRatio: 0.85,
+                    childAspectRatio: 0.74,
                   ),
                   itemCount: filteredProjects.length,
                   itemBuilder: (context, index) {
@@ -333,6 +334,25 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                   ),
                   const Spacer(),
                   const Divider(height: 16),
+
+                  // Primary AI Analysis Action
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                      ),
+                      onPressed: () => _openPropertyAnalysis(context, appState, project),
+                      icon: const Icon(Icons.psychology_outlined, size: 16),
+                      label: const Text(
+                        'Analyse Property with AI',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
 
                   // Actions
                   Row(
@@ -690,6 +710,30 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _openPropertyAnalysis(
+    BuildContext context,
+    AppStateProvider appState,
+    ProjectModel project,
+  ) {
+    final validationError = appState.validateProjectForAnalysis(project);
+    if (validationError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Cannot analyze property: $validationError'),
+          backgroundColor: AppTheme.warning,
+        ),
+      );
+      return;
+    }
+
+    appState.selectProject(project);
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PropertyAnalysisScreen(initialProject: project),
       ),
     );
   }

@@ -4,6 +4,7 @@ import '../../config/theme.dart';
 import '../../providers/navigation_provider.dart';
 import '../../providers/app_state_provider.dart';
 import '../../widgets/stat_card.dart';
+import '../projects/property_analysis_screen.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -198,6 +199,27 @@ class DashboardScreen extends StatelessWidget {
               spacing: AppTheme.spacingMd,
               runSpacing: AppTheme.spacingSm,
               children: [
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: AppTheme.primary,
+                    elevation: 0,
+                  ),
+                  onPressed: () {
+                    final project = appState.selectedProject;
+                    if (project == null) return;
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => PropertyAnalysisScreen(initialProject: project),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.psychology, size: 18, color: AppTheme.primary),
+                  label: const Text(
+                    'AI Property Intelligence',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.secondary,
