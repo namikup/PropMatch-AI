@@ -9,6 +9,7 @@ import 'screens/auth/login_screen.dart';
 import 'screens/dashboard/dashboard_screen.dart';
 import 'screens/projects/projects_screen.dart';
 import 'screens/audience/audience_discovery_screen.dart';
+import 'screens/prospects/buyer_intelligence_screen.dart';
 import 'screens/buyers/buyers_screen.dart';
 import 'screens/leads/leads_screen.dart';
 import 'screens/matching/matching_screen.dart';
@@ -120,6 +121,8 @@ class AppShell extends StatelessWidget {
         return const ProjectsScreen();
       case NavItem.audienceDiscovery:
         return const AudienceDiscoveryScreen();
+      case NavItem.buyerIntelligence:
+        return const BuyerIntelligenceScreen();
       case NavItem.buyers:
         return const BuyersScreen();
       case NavItem.leads:

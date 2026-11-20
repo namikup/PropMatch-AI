@@ -50,7 +50,16 @@ exports.collections = {
     consentRecords: exports.db.collection("consent_records"),
     propertyAnalyses: exports.db.collection("property_analyses"),
     audienceSegments: exports.db.collection("audience_segments"),
+    matches: exports.db.collection("matches"),
     aiUsageLogs: exports.db.collection("ai_usage_logs"),
-    agentQuotas: exports.db.collection("agent_quotas")
+    agentQuotas: exports.db.collection("agent_quotas"),
+    prospects: exports.db.collection("prospects"),
+    dataSources: exports.db.collection("data_sources"),
+    prospectSourceRecords: exports.db.collection("prospect_source_records"),
+    prospectConsents: exports.db.collection("prospect_consents"),
+    prospectActivities: exports.db.collection("prospect_activities"),
+    prospectImportJobs: exports.db.collection("prospect_import_jobs"),
+    prospectMatches: exports.db.collection("prospect_matches"),
+    prospectAuditLogs: exports.db.collection("prospect_audit_logs")
 };
 //# sourceMappingURL=firebase.config.js.map

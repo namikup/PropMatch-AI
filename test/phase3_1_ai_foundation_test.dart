@@ -192,6 +192,12 @@ class _MockAIService implements AIBackendService {
   Future<PropertyAnalysisResult?> getCachedPropertyAnalysis(String projectId) async => null;
 
   @override
+  Future<List<AudienceSegmentModel>?> getCachedAudienceSegments(String projectId) async => null;
+
+  @override
+  Future<List<MatchModel>?> getCachedMatches(String projectId) async => null;
+
+  @override
   Future<PropertyAnalysisResult> analyzeProperty(ProjectModel project, {bool forceRefresh = false}) async {
     onInvoke();
     return const PropertyAnalysisResult(
@@ -208,12 +214,18 @@ class _MockAIService implements AIBackendService {
   }
 
   @override
-  Future<List<AudienceSegmentModel>> discoverAudienceSegments(ProjectModel project) async => [];
+  Future<List<AudienceSegmentModel>> discoverAudienceSegments(
+    ProjectModel project, {
+    PropertyAnalysisResult? existingAnalysis,
+    String? agentObservations,
+    bool forceRefresh = false,
+  }) async => [];
 
   @override
   Future<List<MatchModel>> matchBuyers({
     required ProjectModel project,
     required List<BuyerModel> buyers,
+    bool forceRefresh = false,
   }) async => [];
 
   @override

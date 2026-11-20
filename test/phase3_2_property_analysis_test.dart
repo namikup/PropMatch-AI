@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:propmatch_ai/models/project_model.dart';
-import 'package:propmatch_ai/models/property_analysis_model.dart';
 import 'package:propmatch_ai/providers/app_state_provider.dart';
 import 'package:propmatch_ai/providers/navigation_provider.dart';
 import 'package:propmatch_ai/services/ai_backend_service.dart';

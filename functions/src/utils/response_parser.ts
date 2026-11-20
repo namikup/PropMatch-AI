@@ -2,6 +2,7 @@ import {
   PropertyAnalysisOutput,
   AudienceDiscoveryOutput,
   BuyerMatchingOutput,
+  BuyerMatchingItem,
   MarketingContentOutput
 } from "../types/ai.types";
 
@@ -263,7 +264,7 @@ export class ResponseParser {
   }
 
   /**
-   * Validates and normalizes AudienceDiscoveryOutput
+   * Validates and normalizes AudienceDiscoveryOutput (Phase 3.3A)
    */
   static validateAudienceDiscovery(data: any): AudienceDiscoveryOutput {
     if (!data || typeof data !== "object") {
@@ -271,48 +272,167 @@ export class ResponseParser {
     }
 
     const segmentsRaw = Array.isArray(data.audience_segments) ? data.audience_segments : [];
-    const audience_segments = segmentsRaw.map((s: any) => ({
-      segment_name: typeof s.segment_name === "string" ? s.segment_name : "Target Audience",
-      description: typeof s.description === "string" ? s.description : "",
-      estimated_relevance: typeof s.estimated_relevance === "number" ? Math.min(100, Math.max(0, s.estimated_relevance)) : 70,
-      buying_motivations: Array.isArray(s.buying_motivations) ? s.buying_motivations.map(String) : [],
-      potential_objections: Array.isArray(s.potential_objections) ? s.potential_objections.map(String) : [],
-      recommended_marketing_channels: Array.isArray(s.recommended_marketing_channels) ? s.recommended_marketing_channels.map(String) : [],
-      recommended_content_angles: Array.isArray(s.recommended_content_angles) ? s.recommended_content_angles.map(String) : [],
-      evidence: Array.isArray(s.evidence) ? s.evidence.map(String) : [],
-      assumptions: Array.isArray(s.assumptions) ? s.assumptions.map(String) : []
-    }));
+    const audience_segments = segmentsRaw.map((s: any) => {
+      const messages = Array.isArray(s.recommended_marketing_messages)
+        ? s.recommended_marketing_messages.map(String)
+        : Array.isArray(s.recommended_content_angles)
+        ? s.recommended_content_angles.map(String)
+        : [];
 
-    return { audience_segments };
+      const channels = Array.isArray(s.recommended_marketing_channels) && s.recommended_marketing_channels.length > 0
+        ? s.recommended_marketing_channels.map(String)
+        : ["Facebook Ads", "WhatsApp Broadcast", "Property Portals"];
+
+      const formats = Array.isArray(s.recommended_content_formats) && s.recommended_content_formats.length > 0
+        ? s.recommended_content_formats.map(String)
+        : ["Short Video Reel", "Carousel Ad", "WhatsApp Flyer"];
+
+      const conf = ["High", "Medium", "Low"].includes(s.confidence_level)
+        ? s.confidence_level
+        : "High";
+
+      return {
+        id: typeof s.id === "string" ? s.id : undefined,
+        segment_name: typeof s.segment_name === "string" ? s.segment_name : "Target Audience",
+        description: typeof s.description === "string" ? s.description : "",
+        estimated_relevance: typeof s.estimated_relevance === "number" ? Math.min(100, Math.max(0, s.estimated_relevance)) : 75,
+        buying_motivations: Array.isArray(s.buying_motivations) ? s.buying_motivations.map(String) : [],
+        appealing_features: Array.isArray(s.appealing_features) ? s.appealing_features.map(String) : [],
+        potential_objections: Array.isArray(s.potential_objections) ? s.potential_objections.map(String) : [],
+        recommended_marketing_messages: messages,
+        recommended_marketing_channels: channels,
+        recommended_content_formats: formats,
+        recommended_content_angles: messages,
+        evidence: Array.isArray(s.evidence) ? s.evidence.map(String) : ["Agent-provided project specifications"],
+        assumptions: Array.isArray(s.assumptions) ? s.assumptions.map(String) : ["Demographic and income alignment with project pricing tier"],
+        confidence_level: conf,
+        market_demand_disclaimer: "AI-generated audience hypothesis — not verified market demand."
+      };
+    });
+
+    const ov = data.overview && typeof data.overview === "object" ? data.overview : {};
+    const overview = {
+      total_segments: audience_segments.length,
+      primary_target_group: typeof ov.primary_target_group === "string" ? ov.primary_target_group : (audience_segments[0]?.segment_name || "Primary Audience"),
+      strategic_summary: typeof ov.strategic_summary === "string" ? ov.strategic_summary : "Audience hypothesis derived from property pricing, location, and specifications.",
+      market_demand_disclaimer: "AI-generated audience hypothesis — not verified market demand."
+    };
+
+    return { audience_segments, overview };
   }
 
   /**
-   * Validates and normalizes BuyerMatchingOutput
+   * Validates and normalizes BuyerMatchingOutput (Phase 3.3B)
+   * If deterministic baseline matches are provided, strictly preserves deterministic scores
+   * and classifications while enriching with Gemini's explanations, objections, and conversation openers.
    */
-  static validateBuyerMatching(data: any): BuyerMatchingOutput {
+  static validateBuyerMatching(data: any, baseline?: BuyerMatchingOutput): BuyerMatchingOutput {
     if (!data || typeof data !== "object") {
+      if (baseline) return baseline;
       throw new Error("Invalid BuyerMatchingOutput: Expected JSON object.");
     }
 
     const matchesRaw = Array.isArray(data.matches) ? data.matches : [];
-    const matches = matchesRaw.map((m: any) => ({
-      buyer_id: typeof m.buyer_id === "string" ? m.buyer_id : "",
-      project_id: typeof m.project_id === "string" ? m.project_id : "",
-      overall_score: typeof m.overall_score === "number" ? Math.min(100, Math.max(0, m.overall_score)) : 50,
-      matching_factors: {
-        budget: typeof m.matching_factors?.budget === "number" ? m.matching_factors.budget : 0,
-        location: typeof m.matching_factors?.location === "number" ? m.matching_factors.location : 0,
-        property_type: typeof m.matching_factors?.property_type === "number" ? m.matching_factors.property_type : 0,
-        purchase_purpose: typeof m.matching_factors?.purchase_purpose === "number" ? m.matching_factors.purchase_purpose : 0,
-        buying_timeline: typeof m.matching_factors?.buying_timeline === "number" ? m.matching_factors.buying_timeline : 0
-      },
-      reasons: Array.isArray(m.reasons) ? m.reasons.map(String) : [],
-      potential_mismatches: Array.isArray(m.potential_mismatches) ? m.potential_mismatches.map(String) : [],
-      missing_information: Array.isArray(m.missing_information) ? m.missing_information.map(String) : [],
-      recommended_next_action: typeof m.recommended_next_action === "string" ? m.recommended_next_action : "Follow up"
-    }));
+    const aiMatchMap = new Map<string, any>();
+    for (const m of matchesRaw) {
+      if (m && typeof m.buyer_id === "string") {
+        aiMatchMap.set(m.buyer_id, m);
+      }
+    }
 
-    return { matches };
+    if (baseline) {
+      // Deterministic baseline takes absolute precedence for scores & factors
+      const enrichedMatches: BuyerMatchingItem[] = baseline.matches.map((detMatch) => {
+        const aiMatch = aiMatchMap.get(detMatch.buyer_id);
+        if (!aiMatch) {
+          return detMatch;
+        }
+
+        const aiExplanation = typeof aiMatch.ai_explanation === "string" && aiMatch.ai_explanation.trim().length > 0
+          ? aiMatch.ai_explanation.trim()
+          : detMatch.ai_explanation;
+
+        const conversationOpener = typeof aiMatch.suggested_conversation_opener === "string" && aiMatch.suggested_conversation_opener.trim().length > 0
+          ? aiMatch.suggested_conversation_opener.trim()
+          : detMatch.suggested_conversation_opener;
+
+        const objections = Array.isArray(aiMatch.potential_objections) && aiMatch.potential_objections.length > 0
+          ? aiMatch.potential_objections.map(String)
+          : detMatch.potential_objections;
+
+        const nextAction = typeof aiMatch.recommended_next_action === "string" && aiMatch.recommended_next_action.trim().length > 0
+          ? aiMatch.recommended_next_action.trim()
+          : detMatch.recommended_next_action;
+
+        return {
+          ...detMatch,
+          ai_explanation: aiExplanation,
+          suggested_conversation_opener: conversationOpener,
+          potential_objections: objections,
+          recommended_next_action: nextAction
+        };
+      });
+
+      return {
+        matches: enrichedMatches,
+        overview: baseline.overview
+      };
+    }
+
+    // Fallback if no baseline passed (e.g. legacy or standalone test)
+    const matches: BuyerMatchingItem[] = matchesRaw.map((m: any) => {
+      const score = typeof m.overall_score === "number" ? Math.min(100, Math.max(0, m.overall_score)) : 50;
+      let classification: "Excellent Match" | "Good Match" | "Moderate Match" | "Low Match" = "Moderate Match";
+      if (score >= 85) classification = "Excellent Match";
+      else if (score >= 70) classification = "Good Match";
+      else if (score >= 50) classification = "Moderate Match";
+      else classification = "Low Match";
+
+      const missing = Array.isArray(m.missing_information) ? m.missing_information.map(String) : [];
+      let conf: "High" | "Medium" | "Low" = "High";
+      if (missing.length >= 2) conf = "Low";
+      else if (missing.length === 1) conf = "Medium";
+
+      return {
+        buyer_id: typeof m.buyer_id === "string" ? m.buyer_id : "",
+        project_id: typeof m.project_id === "string" ? m.project_id : "",
+        overall_score: score,
+        confidence_level: conf,
+        matching_classification: classification,
+        matching_factors: {
+          budget: typeof m.matching_factors?.budget === "number" ? m.matching_factors.budget : 0,
+          location: typeof m.matching_factors?.location === "number" ? m.matching_factors.location : 0,
+          property_type: typeof m.matching_factors?.property_type === "number" ? m.matching_factors.property_type : 0,
+          purchase_purpose: typeof m.matching_factors?.purchase_purpose === "number" ? m.matching_factors.purchase_purpose : 0,
+          buying_timeline: typeof m.matching_factors?.buying_timeline === "number" ? m.matching_factors.buying_timeline : 0
+        },
+        reasons: Array.isArray(m.reasons) ? m.reasons.map(String) : [],
+        mismatched_criteria: Array.isArray(m.mismatched_criteria)
+          ? m.mismatched_criteria.map(String)
+          : Array.isArray(m.potential_mismatches)
+          ? m.potential_mismatches.map(String)
+          : [],
+        potential_mismatches: Array.isArray(m.potential_mismatches) ? m.potential_mismatches.map(String) : [],
+        missing_information: missing,
+        potential_objections: Array.isArray(m.potential_objections) ? m.potential_objections.map(String) : [],
+        recommended_next_action: typeof m.recommended_next_action === "string" ? m.recommended_next_action : "Follow up with buyer",
+        ai_explanation: typeof m.ai_explanation === "string" ? m.ai_explanation : undefined,
+        suggested_conversation_opener: typeof m.suggested_conversation_opener === "string" ? m.suggested_conversation_opener : undefined
+      };
+    });
+
+    return {
+      matches,
+      overview: {
+        total_evaluated: matches.length,
+        excellent_matches: matches.filter((m) => m.overall_score >= 85).length,
+        good_matches: matches.filter((m) => m.overall_score >= 70 && m.overall_score < 85).length,
+        moderate_matches: matches.filter((m) => m.overall_score >= 50 && m.overall_score < 70).length,
+        low_matches: matches.filter((m) => m.overall_score < 50).length,
+        average_score:
+          matches.length > 0 ? Math.round(matches.reduce((acc, curr) => acc + curr.overall_score, 0) / matches.length) : 0
+      }
+    };
   }
 
   /**

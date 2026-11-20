@@ -77,6 +77,24 @@ class AIRequestValidator {
         }
     }
     /**
+     * Confirms prospect ownership directly against Firestore database record.
+     */
+    static async verifyProspectOwnershipInFirestore(prospectId, callerUid) {
+        try {
+            const doc = await firebase_config_1.collections.prospects.doc(prospectId).get();
+            if (doc.exists) {
+                const data = doc.data();
+                if (data && data.ownerId && data.ownerId !== callerUid) {
+                    throw new https_1.HttpsError("permission-denied", "Tenant violation: The requested prospect record does not belong to your account.");
+                }
+            }
+        }
+        catch (err) {
+            if (err instanceof https_1.HttpsError)
+                throw err;
+        }
+    }
+    /**
      * Validates buyer data, enforces ownership, and strips all PII for PDPA compliance.
      */
     static validateAndSanitizeBuyers(buyers, callerUid) {

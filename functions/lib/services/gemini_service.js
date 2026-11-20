@@ -232,34 +232,70 @@ Provide JSON adhering to this exact schema:
         });
     }
     /**
-     * Module B — Audience Discovery
+     * Module B — Audience Discovery & Market Demand Intelligence (Phase 3.3A)
      */
-    static async discoverAudienceSegments(project) {
-        const systemInstruction = `You are a high-performance digital marketing strategist specializing in Malaysian property buyer discovery.
-Generate high-relevance, distinct audience persona segments for real estate marketing campaigns.
-Return valid JSON only.`;
-        const prompt = `Generate 4 distinct, highly qualified audience segments for marketing this Malaysian property:
-Project: ${project.name} (${project.propertyType})
+    static async discoverAudienceSegments(project, existingAnalysis, agentObservations) {
+        const systemInstruction = `You are an evidence-aware Malaysian real estate audience intelligence strategist for PropMatch AI.
+Discover 3 to 6 potential buyer audience segments strictly relevant to the supplied property project.
+
+STRICT EVIDENCE & COMPLIANCE POLICY:
+1. Distinguish between (a) verified project attributes, (b) agent-provided market observations, and (c) AI marketing hypotheses.
+2. DO NOT invent numbers of people searching for properties, actual buyer counts, demand statistics, or contact details of identifiable people.
+3. Every audience segment represents an analytical marketing hypothesis, NOT verified market demand or guaranteed buyer leads.
+4. Estimated relevance scores (0-100) reflect demographic and feature alignment with the property, NOT actual conversion probabilities.
+5. Return valid JSON only matching the requested schema.`;
+        let contextDetails = `Project: ${project.name} (${project.propertyType})
+Developer: ${project.developer}
 Location: ${project.location}, ${project.state}
-Price: RM${project.startingPrice} - RM${project.maximumPrice}
-Built-up: ${project.builtUpArea} sqft (${project.bedrooms} Beds)
+Price Range: RM${project.startingPrice} - RM${project.maximumPrice}
+Built-up: ${project.builtUpArea} sqft (${project.bedrooms} Beds, ${project.bathrooms} Baths)
 Facilities: ${project.facilities.join(", ")}
 Amenities: ${project.nearbyAmenities.join(", ")}
-Purpose: ${project.purpose}
+Intended Purpose: ${project.purpose}
+Project Description: ${project.description}`;
+        if (existingAnalysis) {
+            if (existingAnalysis.project_summary) {
+                contextDetails += `\nExisting Property Analysis Summary: ${existingAnalysis.project_summary}`;
+            }
+            if (existingAnalysis.key_selling_points && existingAnalysis.key_selling_points.length > 0) {
+                contextDetails += `\nVerified Key Selling Points: ${existingAnalysis.key_selling_points.join("; ")}`;
+            }
+            if (existingAnalysis.recommended_price_positioning) {
+                contextDetails += `\nPrice Positioning: ${existingAnalysis.recommended_price_positioning}`;
+            }
+        }
+        if (agentObservations && agentObservations.trim().length > 0) {
+            contextDetails += `\nAgent-Provided Local Market Observations: ${agentObservations.trim()}`;
+        }
+        const prompt = `Analyze the following Malaysian property and generate approximately 3 to 6 distinct, highly qualified potential buyer audience segments:
+
+${contextDetails}
+
+Evaluate which buyer profiles are genuinely suitable for this property (e.g., first-time homebuyers, young working professionals, upgraders/families, investors, interstate migrants, lifestyle retirees). Do NOT generate unsuitable segments automatically if the property's pricing or attributes do not align.
 
 Format your response as JSON matching:
 {
+  "overview": {
+    "total_segments": 4,
+    "primary_target_group": "Name of top audience to prioritize",
+    "strategic_summary": "1-2 sentence executive summary of overall buyer demand alignment",
+    "market_demand_disclaimer": "AI-generated audience hypothesis — not verified market demand."
+  },
   "audience_segments": [
     {
-      "segment_name": "Specific persona title",
-      "description": "Demographic and behavioral background",
-      "estimated_relevance": 85,
-      "buying_motivations": ["Reason 1", "Reason 2"],
-      "potential_objections": ["Concern 1", "Concern 2"],
-      "recommended_marketing_channels": ["Facebook Lead Ads", "Instagram Reel", "Google Search"],
-      "recommended_content_angles": ["Angle 1", "Angle 2"],
-      "evidence": ["Why this project suits them based on facilities or price"],
-      "assumptions": ["Key assumptions made regarding this segment"]
+      "segment_name": "Specific persona title (e.g. Bayan Lepas Multinational Tech Engineers)",
+      "description": "Demographic, economic profile, and life stage of this segment",
+      "estimated_relevance": 88,
+      "buying_motivations": ["Commute convenience to Bayan Lepas FTZ", "Resort facilities for young active lifestyle"],
+      "appealing_features": ["Proximity to expressway", "Freehold title", "High-speed internet ready"],
+      "potential_objections": ["Higher density vs landed properties", "Peak hour traffic along coastal expressway"],
+      "recommended_marketing_messages": ["Cut your daily commute by half — Seafront living 5 mins from Bayan Lepas"],
+      "recommended_marketing_channels": ["Facebook Lead Ads", "WhatsApp Direct Broadcast", "Property Portals", "Xiaohongshu (RED)"],
+      "recommended_content_formats": ["15s Video Reel", "Carousel Floorplan Ad", "WhatsApp PDF Brochure"],
+      "evidence": ["Project located 5 mins from FTZ corridor", "Starting price RM${project.startingPrice} matches monthly household income >RM8,000"],
+      "assumptions": ["Assumes household monthly income aligns with 3.8% mortgage rate", "Assumes buyer values lifestyle amenities over land title"],
+      "confidence_level": "High",
+      "market_demand_disclaimer": "AI-generated audience hypothesis — not verified market demand."
     }
   ]
 }`;
@@ -269,50 +305,70 @@ Format your response as JSON matching:
         });
     }
     /**
-     * Module D — Buyer Matching Intelligence
+     * Module D — Buyer Matching Intelligence (Phase 3.3B)
+     * The deterministic engine pre-computes scores. Gemini generates rich explanations,
+     * feature relevance, objection management, and conversation openers.
      */
-    static async matchBuyers(project, buyers) {
-        const systemInstruction = `You are a precision buyer-property matching engine for PropMatch AI.
-Evaluate how well each prospective buyer aligns with the property across 5 dimensions:
-1. Budget Compatibility (Weight: 25%)
-2. Location Compatibility (Weight: 25%)
-3. Property Type (Weight: 20%)
-4. Purchase Purpose (Weight: 15%)
-5. Buying Timeline (Weight: 15%)
-Return valid JSON only.`;
-        const buyersPayload = JSON.stringify(buyers, null, 2);
-        const prompt = `Evaluate the following ${buyers.length} prospective buyers against the property development:
-Property: ${project.name} in ${project.location}, ${project.state}
-Price Range: RM${project.startingPrice} to RM${project.maximumPrice}
-Type: ${project.propertyType}, Bedrooms: ${project.bedrooms}, Purpose: ${project.purpose}
+    static async matchBuyers(project, buyers, baseline) {
+        const systemInstruction = `You are an elite Malaysian real estate advisory engine for PropMatch AI.
+Your task is to provide expert contextual explanations, objection handling, and follow-up guidance for pre-computed buyer compatibility matches.
 
-Buyers:
-${buyersPayload}
+STRICT CONSTRAINTS & COMPLIANCE:
+1. DO NOT modify, adjust, or invent compatibility scores or matching dimensions. The deterministic scores are strictly fixed.
+2. Provide rich, highly specific qualitative insights for each buyer:
+   - "ai_explanation": A concise narrative (2-3 sentences) explaining why the buyer matches or does not match this specific property based on their preferences.
+   - "potential_objections": Realistic concerns or hesitations this buyer profile may voice regarding price, layout, location, or timing.
+   - "recommended_next_action": Concrete next step for the property agent (e.g. loan qualification check, video walkthrough, showroom tour, unit floorplan comparison).
+   - "suggested_conversation_opener": A respectful, high-converting WhatsApp/call opening message customized for this match.
+3. Strict PDPA & privacy: Never hallucinate or assume personal identity or unverified details.
+4. Output valid JSON strictly following the requested schema.`;
+        const matchContext = baseline.matches.map((m) => {
+            const buyerData = buyers.find((b) => b.id === m.buyer_id);
+            return {
+                buyer_id: m.buyer_id,
+                deterministic_score: m.overall_score,
+                classification: m.matching_classification,
+                confidence: m.confidence_level,
+                factors: m.matching_factors,
+                preferences: buyerData
+                    ? {
+                        budget: `RM${buyerData.budgetMin.toLocaleString()} - RM${buyerData.budgetMax.toLocaleString()}`,
+                        preferredLocation: buyerData.preferredLocation,
+                        preferredState: buyerData.preferredState,
+                        propertyType: buyerData.propertyType,
+                        purpose: buyerData.purchasePurpose,
+                        timeline: buyerData.buyingTimeline
+                    }
+                    : {}
+            };
+        });
+        const prompt = `Review the following ${matchContext.length} pre-calculated deterministic buyer matches for this Malaysian property development:
 
-Output JSON format:
+Property Details:
+Project: ${project.name} in ${project.location}, ${project.state}
+Price Range: RM${project.startingPrice.toLocaleString()} to RM${project.maximumPrice.toLocaleString()}
+Type: ${project.propertyType}, Bedrooms: ${project.bedrooms}, Bathrooms: ${project.bathrooms}
+Purpose: ${project.purpose}, Status: ${project.status}
+Key Facilities: ${project.facilities.join(", ") || "Standard facilities"}
+
+Pre-Calculated Deterministic Matches:
+${JSON.stringify(matchContext, null, 2)}
+
+Provide strategic explanations, objections, and conversation openers adhering to this JSON format:
 {
   "matches": [
     {
       "buyer_id": "buyer_id_here",
-      "project_id": "${project.id}",
-      "overall_score": 88,
-      "matching_factors": {
-        "budget": 25,
-        "location": 20,
-        "property_type": 18,
-        "purchase_purpose": 12,
-        "buying_timeline": 13
-      },
-      "reasons": ["Specific alignment reasons"],
-      "potential_mismatches": ["Any concerns or budget stretches"],
-      "missing_information": ["Any missing criteria from buyer profile"],
-      "recommended_next_action": "e.g. Schedule private showroom viewing"
+      "ai_explanation": "Detailed explanation of match compatibility and lifestyle fit for this property",
+      "potential_objections": ["Specific objection 1", "Specific objection 2"],
+      "recommended_next_action": "Specific next action for the property agent",
+      "suggested_conversation_opener": "Personalized WhatsApp / phone outreach opener"
     }
   ]
 }`;
         return this.executeWithTimeoutAndRetry(prompt, systemInstruction, (raw) => {
             const parsed = response_parser_1.ResponseParser.parseCleanJson(raw);
-            return response_parser_1.ResponseParser.validateBuyerMatching(parsed);
+            return response_parser_1.ResponseParser.validateBuyerMatching(parsed, baseline);
         });
     }
     /**

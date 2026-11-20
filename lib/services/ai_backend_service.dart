@@ -314,12 +314,22 @@ abstract class AIBackendService {
 
   Future<PropertyAnalysisResult?> getCachedPropertyAnalysis(String projectId);
 
-  Future<List<AudienceSegmentModel>> discoverAudienceSegments(ProjectModel project);
+  Future<List<AudienceSegmentModel>> discoverAudienceSegments(
+    ProjectModel project, {
+    PropertyAnalysisResult? existingAnalysis,
+    String? agentObservations,
+    bool forceRefresh = false,
+  });
+
+  Future<List<AudienceSegmentModel>?> getCachedAudienceSegments(String projectId);
 
   Future<List<MatchModel>> matchBuyers({
     required ProjectModel project,
     required List<BuyerModel> buyers,
+    bool forceRefresh = false,
   });
+
+  Future<List<MatchModel>?> getCachedMatches(String projectId);
 
   Future<SegmentMarketingContent> generateMarketingContent({
     required ProjectModel project,
@@ -340,6 +350,8 @@ abstract class AIBackendService {
 class LocalRuleBasedAIService implements AIBackendService {
   final String? customFallbackReason;
   static final Map<String, PropertyAnalysisResult> _localCache = {};
+  static final Map<String, List<AudienceSegmentModel>> _localAudienceCache = {};
+  static final Map<String, List<MatchModel>> _localMatchCache = {};
 
   const LocalRuleBasedAIService({this.customFallbackReason});
 
@@ -352,6 +364,11 @@ class LocalRuleBasedAIService implements AIBackendService {
   @override
   Future<PropertyAnalysisResult?> getCachedPropertyAnalysis(String projectId) async {
     return _localCache[projectId];
+  }
+
+  @override
+  Future<List<AudienceSegmentModel>?> getCachedAudienceSegments(String projectId) async {
+    return _localAudienceCache[projectId];
   }
 
   @override
@@ -535,71 +552,106 @@ class LocalRuleBasedAIService implements AIBackendService {
   }
 
   @override
-  Future<List<AudienceSegmentModel>> discoverAudienceSegments(ProjectModel project) async {
-    final segments = AIService.discoverAudienceSegments(project);
-    return segments.map((s) => AudienceSegmentModel(
-      id: s.id,
-      projectId: s.projectId,
-      ownerId: s.ownerId,
-      name: s.name,
-      description: s.description,
-      interestReason: s.interestReason,
-      budgetCompatibility: s.budgetCompatibility,
-      propertyPreferences: s.propertyPreferences,
-      purchasePurpose: s.purchasePurpose,
-      potentialObjections: s.potentialObjections,
-      recommendedMarketingMessages: s.recommendedMarketingMessages,
-      recommendedChannels: s.recommendedChannels,
-      suggestedCallToAction: s.suggestedCallToAction,
-      suitabilityScore: s.suitabilityScore,
-      rank: s.rank,
-      reasoning: s.reasoning,
-      marketingAngle: s.marketingAngle,
-      scoringFactors: s.scoringFactors,
-      ageRange: s.ageRange,
-      incomeRange: s.incomeRange,
-      geographicTargets: s.geographicTargets,
-      missingInformation: s.missingInformation,
-      matchingPropertyCharacteristics: s.matchingPropertyCharacteristics,
-      demographicDisclaimer: s.demographicDisclaimer,
-      isLiveAI: false,
-      generationSource: 'Rule-based Fallback Engine',
-      fallbackReason: customFallbackReason,
-      createdAt: s.createdAt,
-    )).toList();
+  Future<List<AudienceSegmentModel>> discoverAudienceSegments(
+    ProjectModel project, {
+    PropertyAnalysisResult? existingAnalysis,
+    String? agentObservations,
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh && _localAudienceCache.containsKey(project.id)) {
+      return _localAudienceCache[project.id]!;
+    }
+
+    final segments = AIService.discoverAudienceSegments(project).take(5).toList();
+    final results = segments.map((s) {
+      final ev = <String>[
+        'Property located in ${project.location}, ${project.state}',
+        'Entry pricing: RM${project.startingPrice.toStringAsFixed(0)} - RM${project.maximumPrice.toStringAsFixed(0)}',
+        'Unit specification: ${project.bedrooms} Beds, ${project.bathrooms} Baths, ${project.builtUpArea.toStringAsFixed(0)} sqft',
+        if (project.facilities.isNotEmpty) 'Facilities: ${project.facilities.take(3).join(', ')}',
+        if (agentObservations != null && agentObservations.trim().isNotEmpty)
+          'Agent market observation: $agentObservations',
+      ];
+      final assump = <String>[
+        'Target group has sufficient debt service ratio for RM${project.startingPrice.toStringAsFixed(0)} purchase',
+        'Buyers prioritize connectivity and modern layout amenities',
+      ];
+      final features = <String>[
+        'Strategic location in ${project.location}',
+        'Functional ${project.builtUpArea.toStringAsFixed(0)} sqft layout',
+        if (project.facilities.isNotEmpty) ...project.facilities.take(3),
+      ];
+      final formats = <String>[
+        '15s Video Reel / Walkthrough',
+        'Carousel Ad highlighting layout & facilities',
+        'WhatsApp PDF One-Pager Brochure',
+      ];
+
+      return AudienceSegmentModel(
+        id: s.id,
+        projectId: s.projectId,
+        ownerId: s.ownerId,
+        name: s.name,
+        description: s.description,
+        interestReason: s.interestReason,
+        budgetCompatibility: s.budgetCompatibility,
+        propertyPreferences: s.propertyPreferences,
+        purchasePurpose: s.purchasePurpose,
+        potentialObjections: s.potentialObjections,
+        recommendedMarketingMessages: s.recommendedMarketingMessages,
+        recommendedChannels: s.recommendedChannels,
+        suggestedCallToAction: s.suggestedCallToAction,
+        suitabilityScore: s.suitabilityScore,
+        rank: s.rank,
+        reasoning: s.reasoning,
+        marketingAngle: s.marketingAngle,
+        scoringFactors: s.scoringFactors,
+        ageRange: s.ageRange,
+        incomeRange: s.incomeRange,
+        geographicTargets: s.geographicTargets,
+        missingInformation: s.missingInformation,
+        matchingPropertyCharacteristics: features,
+        demographicDisclaimer: s.demographicDisclaimer,
+        isLiveAI: false,
+        generationSource: 'Rule-based Fallback Engine',
+        fallbackReason: customFallbackReason ?? 'Operating in local rule-based engine',
+        appealingFeatures: features,
+        recommendedContentFormats: formats,
+        evidence: ev,
+        assumptions: assump,
+        confidenceLevel: 'High',
+        marketDemandDisclaimer: 'AI-generated audience hypothesis — not verified market demand.',
+        isCached: false,
+        sourceVersion: 'v3.3A-local',
+        createdAt: s.createdAt,
+      );
+    }).toList();
+
+    _localAudienceCache[project.id] = results;
+    return results;
+  }
+
+  @override
+  Future<List<MatchModel>?> getCachedMatches(String projectId) async {
+    return _localMatchCache[projectId];
   }
 
   @override
   Future<List<MatchModel>> matchBuyers({
     required ProjectModel project,
     required List<BuyerModel> buyers,
+    bool forceRefresh = false,
   }) async {
+    if (!forceRefresh && _localMatchCache.containsKey(project.id)) {
+      return _localMatchCache[project.id]!;
+    }
+
     final matches = MatchingService.matchBuyersWithProject(
       buyers: buyers,
       project: project,
     );
-    return matches.map((m) => MatchModel(
-      id: m.id,
-      ownerId: m.ownerId,
-      buyerId: m.buyerId,
-      projectId: m.projectId,
-      buyerName: m.buyerName,
-      projectName: m.projectName,
-      isDemoBuyer: m.isDemoBuyer,
-      isLiveAI: false,
-      calculationSource: 'Rule-based Fallback Engine',
-      overallMatchPercentage: m.overallMatchPercentage,
-      budgetScore: m.budgetScore,
-      locationScore: m.locationScore,
-      propertyTypeScore: m.propertyTypeScore,
-      purposeScore: m.purposeScore,
-      timelineScore: m.timelineScore,
-      explanation: m.explanation,
-      matchingFactors: m.matchingFactors,
-      missingInformation: m.missingInformation,
-      potentialConcerns: m.potentialConcerns,
-      calculatedAt: m.calculatedAt,
-    )).toList();
+    _localMatchCache[project.id] = matches;
+    return matches;
   }
 
   @override
@@ -693,6 +745,49 @@ class CloudFunctionsAIService implements AIBackendService {
   }
 
   @override
+  Future<List<AudienceSegmentModel>?> getCachedAudienceSegments(String projectId) async {
+    final functions = _functions;
+    if (functions == null) {
+      return _fallbackService.getCachedAudienceSegments(projectId);
+    }
+
+    try {
+      final callable = functions.httpsCallable('getAudienceSegments');
+      final result = await callable.call<Map<String, dynamic>>({
+        'projectId': projectId,
+      });
+
+      final data = result.data['data'] as Map<String, dynamic>?;
+      if (data == null) return null;
+
+      final rawSegments = data['audience_segments'] as List<dynamic>? ?? [];
+      if (rawSegments.isEmpty) return null;
+
+      final meta = result.data['meta'] as Map<String, dynamic>? ?? {};
+      final isCached = meta['cached'] as bool? ?? true;
+      final modelName = meta['model']?.toString() ?? 'gemini-2.5-flash';
+
+      final segments = <AudienceSegmentModel>[];
+      for (int i = 0; i < rawSegments.length; i++) {
+        final item = rawSegments[i] as Map<String, dynamic>;
+        segments.add(AudienceSegmentModel.fromMap({
+          ...item,
+          'projectId': projectId,
+          'is_live_ai': true,
+          'model': modelName,
+          'isCached': isCached,
+        }));
+      }
+      return segments;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[CloudFunctionsAIService] getCachedAudienceSegments error: $e');
+      }
+      return _fallbackService.getCachedAudienceSegments(projectId);
+    }
+  }
+
+  @override
   Future<PropertyAnalysisResult> analyzeProperty(ProjectModel project, {bool forceRefresh = false}) async {
     final functions = _functions;
     if (functions == null) {
@@ -735,51 +830,62 @@ class CloudFunctionsAIService implements AIBackendService {
   }
 
   @override
-  Future<List<AudienceSegmentModel>> discoverAudienceSegments(ProjectModel project) async {
+  Future<List<AudienceSegmentModel>> discoverAudienceSegments(
+    ProjectModel project, {
+    PropertyAnalysisResult? existingAnalysis,
+    String? agentObservations,
+    bool forceRefresh = false,
+  }) async {
     final functions = _functions;
     if (functions == null) {
       _isFallbackActive = true;
       _lastError = 'Firebase Functions not initialized. Using offline rule engine.';
-      return _fallbackService.discoverAudienceSegments(project);
+      return _fallbackService.discoverAudienceSegments(
+        project,
+        existingAnalysis: existingAnalysis,
+        agentObservations: agentObservations,
+        forceRefresh: forceRefresh,
+      );
     }
 
     try {
       final callable = functions.httpsCallable('discoverAudienceSegments');
       final result = await callable.call<Map<String, dynamic>>({
         'project': project.toMap(),
+        if (existingAnalysis != null) 'existingAnalysis': existingAnalysis.toMap(),
+        if (agentObservations != null && agentObservations.isNotEmpty) 'agentObservations': agentObservations,
+        'forceRefresh': forceRefresh,
       });
 
       final data = result.data['data'] as Map<String, dynamic>? ?? {};
+      final meta = result.data['meta'] as Map<String, dynamic>? ?? {};
       final rawSegments = data['audience_segments'] as List<dynamic>? ?? [];
 
       if (rawSegments.isEmpty && enableFallback) {
         _isFallbackActive = true;
         _lastError = 'No segments returned from backend. Using rule engine.';
-        return _fallbackService.discoverAudienceSegments(project);
+        return _fallbackService.discoverAudienceSegments(
+          project,
+          existingAnalysis: existingAnalysis,
+          agentObservations: agentObservations,
+          forceRefresh: forceRefresh,
+        );
       }
+
+      final isCached = meta['cached'] as bool? ?? false;
+      final modelName = meta['model']?.toString() ?? 'gemini-2.5-flash';
 
       final segments = <AudienceSegmentModel>[];
       for (int i = 0; i < rawSegments.length; i++) {
         final item = rawSegments[i] as Map<String, dynamic>;
-        segments.add(AudienceSegmentModel(
-          projectId: project.id,
-          ownerId: project.ownerId,
-          name: item['segment_name']?.toString() ?? 'Audience Segment ${i + 1}',
-          description: item['description']?.toString() ?? '',
-          interestReason: (item['evidence'] as List<dynamic>?)?.join('. ') ?? '',
-          budgetCompatibility: 'High: Evaluated against RM${project.startingPrice.toStringAsFixed(0)} entry',
-          propertyPreferences: '${project.propertyType}, ${project.bedrooms} Bedrooms, ${project.builtUpArea.toStringAsFixed(0)} sqft',
-          purchasePurpose: project.purpose,
-          potentialObjections: List<String>.from(item['potential_objections'] ?? []),
-          recommendedMarketingMessages: List<String>.from(item['recommended_content_angles'] ?? []),
-          recommendedChannels: List<String>.from(item['recommended_marketing_channels'] ?? []),
-          suggestedCallToAction: 'Register for Priority Preview',
-          suitabilityScore: (item['estimated_relevance'] as num?)?.toDouble() ?? 75.0,
-          rank: i + 1,
-          reasoning: (item['evidence'] as List<dynamic>?)?.join('. ') ?? 'High alignment with project attributes.',
-          isLiveAI: true,
-          generationSource: 'gemini-2.5-flash',
-        ));
+        segments.add(AudienceSegmentModel.fromMap({
+          ...item,
+          'projectId': project.id,
+          'ownerId': project.ownerId,
+          'is_live_ai': true,
+          'model': modelName,
+          'isCached': isCached,
+        }));
       }
 
       _isFallbackActive = false;
@@ -792,9 +898,52 @@ class CloudFunctionsAIService implements AIBackendService {
         debugPrint('[CloudFunctionsAIService] discoverAudienceSegments fallback activated: $e');
       }
       if (enableFallback) {
-        return _fallbackService.discoverAudienceSegments(project);
+        return _fallbackService.discoverAudienceSegments(
+          project,
+          existingAnalysis: existingAnalysis,
+          agentObservations: agentObservations,
+          forceRefresh: forceRefresh,
+        );
       }
       rethrow;
+    }
+  }
+
+  @override
+  Future<List<MatchModel>?> getCachedMatches(String projectId) async {
+    final functions = _functions;
+    if (functions == null) {
+      return _fallbackService.getCachedMatches(projectId);
+    }
+
+    try {
+      final callable = functions.httpsCallable('getMatches');
+      final result = await callable.call<Map<String, dynamic>>({
+        'projectId': projectId,
+      });
+
+      final data = result.data['data'] as Map<String, dynamic>?;
+      if (data == null) return null;
+
+      final rawMatches = data['matches'] as List<dynamic>? ?? [];
+      final isLiveAI = result.data['meta']?['isLiveAI'] as bool? ?? false;
+      final calcSource = result.data['meta']?['calculationSource']?.toString() ?? 'Firestore Cache';
+
+      return rawMatches.map((m) {
+        final item = m as Map<String, dynamic>;
+        return MatchModel.fromMap({
+          ...item,
+          'projectId': projectId,
+          'isLiveAI': isLiveAI,
+          'calculationSource': calcSource,
+          'isCached': true,
+        });
+      }).toList();
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[CloudFunctionsAIService] getCachedMatches fallback: $e');
+      }
+      return _fallbackService.getCachedMatches(projectId);
     }
   }
 
@@ -802,12 +951,13 @@ class CloudFunctionsAIService implements AIBackendService {
   Future<List<MatchModel>> matchBuyers({
     required ProjectModel project,
     required List<BuyerModel> buyers,
+    bool forceRefresh = false,
   }) async {
     final functions = _functions;
     if (functions == null) {
       _isFallbackActive = true;
       _lastError = 'Firebase Functions not initialized. Using offline rule engine.';
-      return _fallbackService.matchBuyers(project: project, buyers: buyers);
+      return _fallbackService.matchBuyers(project: project, buyers: buyers, forceRefresh: forceRefresh);
     }
 
     try {
@@ -815,15 +965,20 @@ class CloudFunctionsAIService implements AIBackendService {
       final result = await callable.call<Map<String, dynamic>>({
         'project': project.toMap(),
         'buyers': buyers.map((b) => b.toMap()).toList(),
+        'forceRefresh': forceRefresh,
       });
 
       final data = result.data['data'] as Map<String, dynamic>? ?? {};
       final rawMatches = data['matches'] as List<dynamic>? ?? [];
+      final meta = result.data['meta'] as Map<String, dynamic>? ?? {};
+      final isLiveAI = meta['isLiveAI'] as bool? ?? false;
+      final isCached = meta['cached'] as bool? ?? false;
+      final modelUsed = meta['model']?.toString() ?? 'gemini-2.5-flash';
 
       if (rawMatches.isEmpty && enableFallback) {
         _isFallbackActive = true;
         _lastError = 'No matches returned from backend. Using rule engine.';
-        return _fallbackService.matchBuyers(project: project, buyers: buyers);
+        return _fallbackService.matchBuyers(project: project, buyers: buyers, forceRefresh: forceRefresh);
       }
 
       final buyerMap = {for (final b in buyers) b.id: b};
@@ -833,27 +988,18 @@ class CloudFunctionsAIService implements AIBackendService {
         final item = m as Map<String, dynamic>;
         final buyerId = item['buyer_id']?.toString() ?? '';
         final buyer = buyerMap[buyerId];
-        final factors = item['matching_factors'] as Map<String, dynamic>? ?? {};
 
-        matches.add(MatchModel(
-          ownerId: project.ownerId,
-          buyerId: buyerId,
-          projectId: item['project_id']?.toString() ?? project.id,
-          buyerName: buyer?.name ?? 'Prospective Buyer',
-          projectName: project.name,
-          overallMatchPercentage: (item['overall_score'] as num?)?.toDouble() ?? 50.0,
-          budgetScore: (factors['budget'] as num?)?.toDouble() ?? 0.0,
-          locationScore: (factors['location'] as num?)?.toDouble() ?? 0.0,
-          propertyTypeScore: (factors['property_type'] as num?)?.toDouble() ?? 0.0,
-          purposeScore: (factors['purchase_purpose'] as num?)?.toDouble() ?? 0.0,
-          timelineScore: (factors['buying_timeline'] as num?)?.toDouble() ?? 0.0,
-          explanation: (item['reasons'] as List<dynamic>?)?.join('. ') ?? 'Calculated using AI Matching factors.',
-          matchingFactors: List<String>.from(item['reasons'] ?? []),
-          potentialConcerns: List<String>.from(item['potential_mismatches'] ?? []),
-          missingInformation: List<String>.from(item['missing_information'] ?? []),
-          isLiveAI: true,
-          calculationSource: 'gemini-2.5-flash',
-        ));
+        matches.add(MatchModel.fromMap({
+          ...item,
+          'buyerId': buyerId,
+          'projectId': item['project_id']?.toString() ?? project.id,
+          'buyerName': buyer?.name ?? item['buyer_name'] ?? 'Prospective Buyer',
+          'projectName': project.name,
+          'isDemoBuyer': buyer?.isDemo ?? false,
+          'isLiveAI': isLiveAI,
+          'isCached': isCached,
+          'calculationSource': isLiveAI ? modelUsed : 'Rule-based Deterministic Engine (Fallback)',
+        }));
       }
 
       matches.sort((a, b) => b.overallMatchPercentage.compareTo(a.overallMatchPercentage));
@@ -867,7 +1013,7 @@ class CloudFunctionsAIService implements AIBackendService {
         debugPrint('[CloudFunctionsAIService] matchBuyers fallback activated: $e');
       }
       if (enableFallback) {
-        return _fallbackService.matchBuyers(project: project, buyers: buyers);
+        return _fallbackService.matchBuyers(project: project, buyers: buyers, forceRefresh: forceRefresh);
       }
       rethrow;
     }

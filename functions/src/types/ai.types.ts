@@ -121,28 +121,43 @@ export interface PropertyAnalysisOutput {
   data_provenance?: string;
 }
 
-// Module B Structured Output Schema
+// Module B Structured Output Schema (Phase 3.3A)
 export interface AudienceSegmentItem {
+  id?: string;
   segment_name: string;
   description: string;
-  estimated_relevance: number; // 0-100
+  estimated_relevance: number; // 0-100 (Demographic and feature fit score; not conversion probability)
   buying_motivations: string[];
+  appealing_features: string[];
   potential_objections: string[];
+  recommended_marketing_messages: string[];
   recommended_marketing_channels: string[];
+  recommended_content_formats: string[];
   recommended_content_angles: string[];
   evidence: string[];
   assumptions: string[];
+  confidence_level: "High" | "Medium" | "Low";
+  market_demand_disclaimer: string;
 }
 
 export interface AudienceDiscoveryOutput {
   audience_segments: AudienceSegmentItem[];
+  overview?: {
+    total_segments: number;
+    primary_target_group: string;
+    strategic_summary: string;
+    market_demand_disclaimer: string;
+  };
 }
 
-// Module D Structured Output Schema
+// Module D Structured Output Schema (Phase 3.3B)
 export interface BuyerMatchingItem {
   buyer_id: string;
+  buyer_name?: string;
   project_id: string;
-  overall_score: number; // 0-100
+  overall_score: number; // 0-100 (locked deterministic compatibility score)
+  confidence_level: "High" | "Medium" | "Low";
+  matching_classification: "Excellent Match" | "Good Match" | "Moderate Match" | "Low Match";
   matching_factors: {
     budget: number;
     location: number;
@@ -151,13 +166,27 @@ export interface BuyerMatchingItem {
     buying_timeline: number;
   };
   reasons: string[];
+  mismatched_criteria: string[];
   potential_mismatches: string[];
   missing_information: string[];
+  potential_objections: string[];
   recommended_next_action: string;
+  ai_explanation?: string;
+  suggested_conversation_opener?: string;
+  is_cached?: boolean;
+  source_version?: string;
 }
 
 export interface BuyerMatchingOutput {
   matches: BuyerMatchingItem[];
+  overview: {
+    total_evaluated: number;
+    excellent_matches: number;
+    good_matches: number;
+    moderate_matches: number;
+    low_matches: number;
+    average_score: number;
+  };
 }
 
 // Module E Structured Output Schema

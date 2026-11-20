@@ -34,6 +34,16 @@ class AudienceSegmentModel {
   final String generationSource; // e.g. "gemini-2.5-flash" or "Rule-based Fallback Engine"
   final String? fallbackReason; // Explanation when offline fallback was activated
 
+  // Phase 3.3A Evidence-Aware Market Demand Intelligence Fields
+  final List<String> appealingFeatures;
+  final List<String> recommendedContentFormats;
+  final List<String> evidence;
+  final List<String> assumptions;
+  final String confidenceLevel; // High, Medium, Low
+  final String marketDemandDisclaimer;
+  final bool isCached;
+  final String? sourceVersion;
+
   AudienceSegmentModel({
     String? id,
     required this.projectId,
@@ -62,9 +72,25 @@ class AudienceSegmentModel {
     this.isLiveAI = false,
     this.generationSource = 'Rule-based Fallback Engine',
     this.fallbackReason,
+    this.appealingFeatures = const [],
+    this.recommendedContentFormats = const [],
+    this.evidence = const [],
+    this.assumptions = const [],
+    this.confidenceLevel = 'High',
+    this.marketDemandDisclaimer = 'AI-generated audience hypothesis — not verified market demand.',
+    this.isCached = false,
+    this.sourceVersion,
     DateTime? createdAt,
   })  : id = id ?? const Uuid().v4(),
         createdAt = createdAt ?? DateTime.now();
+
+  List<String> get suggestedMessages => recommendedMarketingMessages;
+  List<String> get recommendedPlatforms => recommendedChannels;
+  double get estimatedRelevance => suitabilityScore;
+  List<String> get buyingMotivations => [
+        if (interestReason.isNotEmpty) interestReason,
+        ...scoringFactors,
+      ];
 
   Map<String, dynamic> toMap() {
     return {
@@ -95,30 +121,66 @@ class AudienceSegmentModel {
       'isLiveAI': isLiveAI,
       'generationSource': generationSource,
       if (fallbackReason != null) 'fallbackReason': fallbackReason,
+      'appealingFeatures': appealingFeatures,
+      'recommendedContentFormats': recommendedContentFormats,
+      'evidence': evidence,
+      'assumptions': assumptions,
+      'confidenceLevel': confidenceLevel,
+      'marketDemandDisclaimer': marketDemandDisclaimer,
+      'isCached': isCached,
+      if (sourceVersion != null) 'sourceVersion': sourceVersion,
       'createdAt': createdAt.toIso8601String(),
     };
   }
 
   factory AudienceSegmentModel.fromMap(Map<String, dynamic> map) {
+    final formats = List<String>.from(
+      map['recommendedContentFormats'] ??
+          map['recommended_content_formats'] ??
+          [],
+    );
+    final features = List<String>.from(
+      map['appealingFeatures'] ??
+          map['appealing_features'] ??
+          map['matchingPropertyCharacteristics'] ??
+          [],
+    );
+    final messages = List<String>.from(
+      map['recommendedMarketingMessages'] ??
+          map['recommended_marketing_messages'] ??
+          map['recommended_content_angles'] ??
+          [],
+    );
+    final channels = List<String>.from(
+      map['recommendedChannels'] ??
+          map['recommended_marketing_channels'] ??
+          [],
+    );
+    final ev = List<String>.from(map['evidence'] ?? []);
+    final assump = List<String>.from(map['assumptions'] ?? []);
+
     return AudienceSegmentModel(
-      id: map['id'] as String? ?? '',
-      projectId: map['projectId'] as String? ?? '',
-      ownerId: map['ownerId'] as String? ?? '',
-      name: map['name'] as String? ?? '',
+      id: map['id'] as String? ?? const Uuid().v4(),
+      projectId: map['projectId'] as String? ?? map['project_id'] as String? ?? '',
+      ownerId: map['ownerId'] as String? ?? map['owner_id'] as String? ?? '',
+      name: map['name'] as String? ?? map['segment_name'] as String? ?? '',
       description: map['description'] as String? ?? '',
-      interestReason: map['interestReason'] as String? ?? '',
+      interestReason: map['interestReason'] as String? ?? (ev.isNotEmpty ? ev.first : ''),
       budgetCompatibility: map['budgetCompatibility'] as String? ?? '',
       propertyPreferences: map['propertyPreferences'] as String? ?? '',
       purchasePurpose: map['purchasePurpose'] as String? ?? '',
-      potentialObjections: List<String>.from(map['potentialObjections'] ?? []),
-      recommendedMarketingMessages:
-          List<String>.from(map['recommendedMarketingMessages'] ?? []),
-      recommendedChannels: List<String>.from(map['recommendedChannels'] ?? []),
-      suggestedCallToAction: map['suggestedCallToAction'] as String? ?? '',
-      suitabilityScore: (map['suitabilityScore'] as num?)?.toDouble() ?? 0.0,
+      potentialObjections: List<String>.from(
+        map['potentialObjections'] ?? map['potential_objections'] ?? [],
+      ),
+      recommendedMarketingMessages: messages,
+      recommendedChannels: channels,
+      suggestedCallToAction: map['suggestedCallToAction'] as String? ?? 'Register for Priority Preview',
+      suitabilityScore: (map['suitabilityScore'] as num?)?.toDouble() ??
+          (map['estimated_relevance'] as num?)?.toDouble() ??
+          75.0,
       rank: (map['rank'] as num?)?.toInt() ?? 1,
-      reasoning: map['reasoning'] as String? ?? '',
-      marketingAngle: map['marketingAngle'] as String? ?? '',
+      reasoning: map['reasoning'] as String? ?? (ev.isNotEmpty ? ev.join('. ') : ''),
+      marketingAngle: map['marketingAngle'] as String? ?? (messages.isNotEmpty ? messages.first : ''),
       scoringFactors: List<String>.from(map['scoringFactors'] ?? []),
       ageRange: map['ageRange'] as String? ?? '',
       incomeRange: map['incomeRange'] as String? ?? '',
@@ -126,17 +188,25 @@ class AudienceSegmentModel {
               ?.map((g) => GeographicTarget.fromMap(g))
               .toList() ??
           [],
-      missingInformation:
-          List<String>.from(map['missingInformation'] ?? []),
-      matchingPropertyCharacteristics:
-          List<String>.from(map['matchingPropertyCharacteristics'] ?? []),
+      missingInformation: List<String>.from(map['missingInformation'] ?? []),
+      matchingPropertyCharacteristics: features,
       demographicDisclaimer: map['demographicDisclaimer'] as String? ?? '',
-      isLiveAI: map['isLiveAI'] as bool? ?? false,
-      generationSource: map['generationSource'] as String? ?? 'Rule-based Fallback Engine',
+      isLiveAI: map['isLiveAI'] as bool? ?? map['is_live_ai'] as bool? ?? false,
+      generationSource: map['generationSource'] as String? ?? map['model'] as String? ?? 'Rule-based Fallback Engine',
       fallbackReason: map['fallbackReason'] as String?,
+      appealingFeatures: features,
+      recommendedContentFormats: formats,
+      evidence: ev,
+      assumptions: assump,
+      confidenceLevel: map['confidenceLevel'] as String? ?? map['confidence_level'] as String? ?? 'High',
+      marketDemandDisclaimer: map['marketDemandDisclaimer'] as String? ??
+          map['market_demand_disclaimer'] as String? ??
+          'AI-generated audience hypothesis — not verified market demand.',
+      isCached: map['isCached'] as bool? ?? false,
+      sourceVersion: map['sourceVersion'] as String?,
       createdAt: map['createdAt'] != null
           ? DateTime.tryParse(map['createdAt']) ?? DateTime.now()
-          : DateTime.now(),
+          : (map['generatedAt'] != null ? DateTime.tryParse(map['generatedAt']) ?? DateTime.now() : DateTime.now()),
     );
   }
 }

@@ -5,6 +5,7 @@ enum NavItem {
   dashboard,
   projects,
   audienceDiscovery,
+  buyerIntelligence,
   buyers,
   leads,
   matching,
@@ -47,6 +48,12 @@ const List<NavItemData> navItems = [
     label: 'AI Audience',
     icon: Icons.people_outline,
     activeIcon: Icons.people,
+  ),
+  NavItemData(
+    item: NavItem.buyerIntelligence,
+    label: 'Buyer Intelligence',
+    icon: Icons.hub_outlined,
+    activeIcon: Icons.hub,
   ),
   NavItemData(
     item: NavItem.buyers,

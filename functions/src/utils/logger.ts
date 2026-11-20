@@ -7,13 +7,29 @@ export interface LogMetadata {
   [key: string]: unknown;
 }
 
-const REDACTED_KEYS = ["password", "token", "apiKey", "secret", "phone", "email", "fullName"];
+const REDACTED_KEYS = [
+  "password",
+  "token",
+  "apiKey",
+  "secret",
+  "phone",
+  "email",
+  "fullName",
+  "icNumber",
+  "nric",
+  "passport",
+  "candidates",
+  "rawPayload",
+  "evidenceText"
+];
 
 function sanitizeValue(value: unknown): unknown {
   if (value === null || value === undefined) return value;
   if (typeof value === "string") {
-    // Redact email patterns
-    return value.replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "[REDACTED_EMAIL]");
+    // Redact email patterns and Malaysian NRIC patterns
+    return value
+      .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "[REDACTED_EMAIL]")
+      .replace(/\b\d{6}-\d{2}-\d{4}\b/g, "[REDACTED_NRIC]");
   }
   if (Array.isArray(value)) {
     return value.map(sanitizeValue);

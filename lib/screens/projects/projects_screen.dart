@@ -378,7 +378,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                             onPressed: () {
                               appState.selectProject(project);
                               nav.navigateTo(NavItem.audienceDiscovery);
-                              appState.runAudienceDiscovery(project);
+                              appState.runAudienceDiscovery(project: project);
                             },
                           ),
                           IconButton(

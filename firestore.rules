@@ -184,6 +184,121 @@ service cloud.firestore {
     }
 
     // =========================================================================
+    // 10. PROSPECT ACQUISITION POOL (`prospects/{prospectId}`)
+    // =========================================================================
+    match /prospects/{prospectId} {
+      allow read: if isResourceOwner();
+
+      allow create: if isAssigningSelfAsOwner()
+                    && isNonEmptyString(request.resource.data.fullName, 2, 100);
+
+      allow update: if isResourceOwner()
+                    && isOwnerImmutable();
+
+      allow delete: if isResourceOwner();
+    }
+
+    // =========================================================================
+    // 11. DATA SOURCES & CHANNELS (`data_sources/{sourceId}`)
+    // =========================================================================
+    match /data_sources/{sourceId} {
+      allow read: if isResourceOwner();
+
+      allow create: if isAssigningSelfAsOwner()
+                    && isNonEmptyString(request.resource.data.name, 2, 100);
+
+      allow update: if isResourceOwner()
+                    && isOwnerImmutable();
+
+      allow delete: if isResourceOwner();
+    }
+
+    // =========================================================================
+    // 12. PROSPECT SOURCE RECORDS (`prospect_source_records/{recordId}`)
+    // =========================================================================
+    match /prospect_source_records/{recordId} {
+      allow read: if isResourceOwner();
+
+      allow create: if isAssigningSelfAsOwner();
+
+      allow update: if isResourceOwner()
+                    && isOwnerImmutable();
+
+      allow delete: if isResourceOwner();
+    }
+
+    // =========================================================================
+    // 13. PROSPECT PDPA CONSENTS (`prospect_consents/{consentId}`)
+    // =========================================================================
+    // CRITICAL: Append-only immutable compliance log under Malaysian PDPA 2010.
+    match /prospect_consents/{consentId} {
+      allow read: if isResourceOwner();
+
+      allow create: if isAssigningSelfAsOwner()
+                    && isNonEmptyString(request.resource.data.prospectId, 1, 100);
+
+      // Immutable: No updates or deletes allowed
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // 14. PROSPECT ACTIVITY TIMELINE (`prospect_activities/{activityId}`)
+    // =========================================================================
+    // Append-only chronological audit log of prospect lifecycle events.
+    match /prospect_activities/{activityId} {
+      allow read: if isResourceOwner();
+
+      allow create: if isAssigningSelfAsOwner()
+                    && isNonEmptyString(request.resource.data.prospectId, 1, 100);
+
+      // Immutable: No updates or deletes allowed
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // 15. PROSPECT IMPORT BATCH JOBS (`prospect_import_jobs/{jobId}`)
+    // =========================================================================
+    match /prospect_import_jobs/{jobId} {
+      allow read: if isResourceOwner();
+
+      allow create: if isAssigningSelfAsOwner();
+
+      allow update: if isResourceOwner()
+                    && isOwnerImmutable();
+
+      allow delete: if isResourceOwner();
+    }
+
+    // =========================================================================
+    // 16. PROSPECT PROJECT MATCHES (`prospect_matches/{matchId}`)
+    // =========================================================================
+    match /prospect_matches/{matchId} {
+      allow read: if isResourceOwner();
+
+      allow create: if isAssigningSelfAsOwner();
+
+      allow update: if isResourceOwner()
+                    && isOwnerImmutable();
+
+      allow delete: if isResourceOwner();
+    }
+
+    // =========================================================================
+    // 17. PROSPECT AUDIT LOGS (`prospect_audit_logs/{logId}`)
+    // =========================================================================
+    match /prospect_audit_logs/{logId} {
+      allow read: if isResourceOwner();
+
+      allow create: if isAssigningSelfAsOwner();
+
+      // Immutable: No updates or deletes allowed
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // =========================================================================
     // DEFAULT DENY FALLTHROUGH
     // =========================================================================
     match /{document=**} {

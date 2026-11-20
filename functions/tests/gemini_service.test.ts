@@ -1,4 +1,5 @@
 import { GeminiService } from "../src/services/gemini_service";
+import { DeterministicMatchingEngine } from "../src/services/deterministic_matching";
 import { ProjectData, SanitizedBuyerData } from "../src/types/project.types";
 import {
   validateModelIdentifier,
@@ -321,9 +322,10 @@ describe("GeminiService Request Execution via @google/genai", () => {
       }
     });
 
-    const result = await GeminiService.matchBuyers(sampleProject, sanitizedBuyers);
+    const baseline = DeterministicMatchingEngine.calculateMatches(sanitizedBuyers, sampleProject);
+    const result = await GeminiService.matchBuyers(sampleProject, sanitizedBuyers, baseline);
     expect(result.data.matches.length).toBe(1);
-    expect(result.data.matches[0].overall_score).toBe(92);
+    expect(result.data.matches[0].overall_score).toBe(baseline.matches[0].overall_score);
     expect(result.data.matches[0].buyer_id).toBe("buyer_101");
   });
 

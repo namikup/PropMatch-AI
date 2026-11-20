@@ -72,8 +72,10 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
             const SizedBox(height: AppTheme.spacingXl),
           ],
 
-          // View Selector & Status
-          if (appState.audienceSegments.isNotEmpty) ...[
+          // Audience Overview Summary & View Selector
+          if (appState.audienceSegments.isNotEmpty && selectedProject != null) ...[
+            _buildAudienceOverviewCards(context, appState, selectedProject),
+            const SizedBox(height: AppTheme.spacingLg),
             _buildViewSelector(context, appState),
             const SizedBox(height: AppTheme.spacingLg),
           ],
@@ -108,71 +110,136 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: AppTheme.primary.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-                            ),
-                            child: const Icon(Icons.people_alt, color: AppTheme.primary, size: 24),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth >= 1300;
+                final titleWidget = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
                           ),
-                          const SizedBox(width: AppTheme.spacingMd),
-                          Expanded(
-                            child: Text(
-                              'AI Audience Discovery Engine',
-                              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                          child: const Icon(Icons.people_alt, color: AppTheme.primary, size: 24),
+                        ),
+                        const SizedBox(width: AppTheme.spacingMd),
+                        Expanded(
+                          child: Text(
+                            'AI Audience Discovery Engine',
+                            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Dynamically evaluate demographics, price elasticity, and interstate migration drivers for your property.',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: AppTheme.spacingMd),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Dynamically evaluate demographics, price elasticity, and interstate migration drivers for your property.',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                );
 
-                // Trigger Discovery Button
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primary,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                  ),
-                  onPressed: appState.isDiscoveringAudience || selectedProject == null
-                      ? null
-                      : () => appState.runAudienceDiscovery(),
-                  icon: appState.isDiscoveringAudience
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Icon(Icons.auto_awesome, size: 18),
-                  label: Text(
-                    appState.isDiscoveringAudience
-                        ? 'Analyzing Demographics...'
-                        : 'Run AI Audience Analysis',
-                  ),
-                ),
-              ],
+                final actionsWidget = Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    if (selectedProject != null) ...[
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        ),
+                        onPressed: () => _showObservationDialog(context, appState, selectedProject),
+                        icon: const Icon(Icons.edit_note, size: 18),
+                        label: Text(appState.lastAgentObservations != null ? 'Edit Observations' : 'Market Observations'),
+                      ),
+                      if (appState.audienceSegments.isNotEmpty) ...[
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                          ),
+                          onPressed: () => _showSegmentComparisonModal(context, appState.audienceSegments),
+                          icon: const Icon(Icons.compare_arrows, size: 18),
+                          label: const Text('Compare Segments'),
+                        ),
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                          ),
+                          onPressed: () async {
+                            await appState.saveAudienceSegmentsToFirestore();
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Audience segments saved to Cloud Firestore!'),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.cloud_upload_outlined, size: 18),
+                          label: const Text('Save to Cloud'),
+                        ),
+                      ],
+                    ],
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primary,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      ),
+                      onPressed: appState.isDiscoveringAudience || selectedProject == null
+                          ? null
+                          : () => appState.runAudienceDiscovery(
+                                project: selectedProject,
+                                forceRefresh: appState.audienceSegments.isNotEmpty,
+                              ),
+                      icon: appState.isDiscoveringAudience
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.auto_awesome, size: 18),
+                      label: Text(
+                        appState.isDiscoveringAudience
+                            ? 'Analyzing Demographics...'
+                            : appState.audienceSegments.isNotEmpty
+                                ? 'Regenerate Analysis'
+                                : 'Run AI Audience Analysis',
+                      ),
+                    ),
+                  ],
+                );
+
+                if (isWide) {
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(child: titleWidget),
+                      const SizedBox(width: AppTheme.spacingMd),
+                      actionsWidget,
+                    ],
+                  );
+                }
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    titleWidget,
+                    const SizedBox(height: AppTheme.spacingMd),
+                    actionsWidget,
+                  ],
+                );
+              },
             ),
             const SizedBox(height: AppTheme.spacingLg),
 
@@ -212,7 +279,7 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
                             final wasDiscovered = appState.audienceSegments.isNotEmpty;
                             appState.selectProject(p);
                             if (wasDiscovered) {
-                              appState.runAudienceDiscovery(p);
+                              appState.runAudienceDiscovery(project: p);
                             }
                           }
                         },
@@ -335,28 +402,39 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.shield_outlined, color: AppTheme.info, size: 20),
+          const Icon(Icons.shield_outlined, color: AppTheme.info, size: 22),
           const SizedBox(width: AppTheme.spacingMd),
           Expanded(
-            child: RichText(
-              text: TextSpan(
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppTheme.textPrimary,
-                      height: 1.4,
-                    ),
-                children: const [
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'MANDATORY MARKET DEMAND INTELLIGENCE DISCLAIMER',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppTheme.info, letterSpacing: 0.5),
+                ),
+                const SizedBox(height: 4),
+                Text.rich(
                   TextSpan(
-                    text: 'DEMO & AI ESTIMATION DISCLOSURE: ',
-                    style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.info),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppTheme.textPrimary,
+                          height: 1.4,
+                        ),
+                    children: const [
+                      TextSpan(
+                        text: 'AI-generated audience hypothesis — not verified market demand. ',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      TextSpan(
+                        text:
+                            'Relevance / fit scores reflect demographic & feature alignment based on agent-supplied specifications, '
+                            'NOT actual lead conversion probabilities or verified buyer headcounts. '
+                            'Verified property characteristics are strictly distinguished from AI demographic hypotheses. '
+                            'Never treat audience hypotheses as guaranteed buyers.',
+                      ),
+                    ],
                   ),
-                  TextSpan(
-                    text:
-                        'All audience segments, suitability ratings, and market sizing below are simulated rule-based marketing hypotheses. '
-                        'They are NOT verified real-world transaction statistics or actual registered buyers. '
-                        'Use these strategic profiles to tailor advertising angles, digital copy, and lead qualification messaging.',
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ],
@@ -778,6 +856,16 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
                   runSpacing: 8,
                   alignment: WrapAlignment.end,
                   children: [
+                    // Copy Segment Brief
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                      onPressed: () => _copySegmentBrief(context, segment, project),
+                      icon: const Icon(Icons.copy, size: 15),
+                      label: const Text('Copy Brief'),
+                    ),
+
                     // Expand/Collapse Deep Dive Button
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
@@ -850,6 +938,24 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
                             title: '🎯 AI Ranking Rationale',
                             content: segment.reasoning,
                           ),
+                          if (segment.evidence.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            _buildEvidenceSection(
+                              title: '✅ Verified Project Facts & Observations',
+                              items: segment.evidence,
+                              color: AppTheme.secondary,
+                              icon: Icons.check_circle_outline,
+                            ),
+                          ],
+                          if (segment.assumptions.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            _buildEvidenceSection(
+                              title: '💡 AI Demographic Hypotheses',
+                              items: segment.assumptions,
+                              color: AppTheme.primary,
+                              icon: Icons.lightbulb_outline,
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -1020,6 +1126,73 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
                                 ),
                               )),
                           const SizedBox(height: 12),
+
+                          // Appealing Features
+                          if (segment.appealingFeatures.isNotEmpty) ...[
+                            const Text('⭐ Appealing Project Characteristics', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: segment.appealingFeatures.map((f) => Chip(
+                                backgroundColor: AppTheme.primary.withValues(alpha: 0.06),
+                                label: Text(f, style: const TextStyle(fontSize: 11, color: AppTheme.primary, fontWeight: FontWeight.w500)),
+                                padding: EdgeInsets.zero,
+                              )).toList(),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+
+                          // Recommended Content Formats
+                          if (segment.recommendedContentFormats.isNotEmpty) ...[
+                            const Text('📐 Recommended Content Formats', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: segment.recommendedContentFormats.map((fmt) => Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.secondary.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: AppTheme.secondary.withValues(alpha: 0.3)),
+                                ),
+                                child: Text(
+                                  fmt,
+                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.secondary),
+                                ),
+                              )).toList(),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+
+                          // Recommended Marketing Hooks
+                          if (segment.recommendedMarketingMessages.isNotEmpty) ...[
+                            const Text('📢 Tailored Marketing Hooks', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                            const SizedBox(height: 6),
+                            ...segment.recommendedMarketingMessages.map((msg) => Container(
+                              margin: const EdgeInsets.only(bottom: 6),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: AppTheme.background,
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: AppTheme.cardBorder),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text('“$msg”', style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: AppTheme.textPrimary)),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.copy, size: 14, color: AppTheme.primary),
+                                    tooltip: 'Copy Hook',
+                                    onPressed: () => _copyToClipboard(context, msg, 'Marketing hook'),
+                                  ),
+                                ],
+                              ),
+                            )),
+                            const SizedBox(height: 12),
+                          ],
 
                           // Target Channels & Call to Action
                           Row(
@@ -1844,6 +2017,437 @@ class _AudienceDiscoveryScreenState extends State<AudienceDiscoveryScreen> {
           style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary, height: 1.4),
         ),
       ],
+    );
+  }
+
+  Widget _buildAudienceOverviewCards(
+    BuildContext context,
+    AppStateProvider appState,
+    ProjectModel project,
+  ) {
+    final segments = appState.audienceSegments;
+    final avgFit = segments.fold(0.0, (acc, s) => acc + s.suitabilityScore) / segments.length;
+    final topSegment = segments.reduce((a, b) => a.suitabilityScore >= b.suitabilityScore ? a : b);
+    final highConfidenceCount = segments.where((s) => s.confidenceLevel.toLowerCase() == 'high').length;
+    final isCached = segments.any((s) => s.isCached);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 900;
+        final cardWidth = isWide ? (constraints.maxWidth - 36) / 4 : (constraints.maxWidth - 12) / 2;
+
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            _buildStatMetricCard(
+              cardWidth: cardWidth,
+              title: 'Discovered Segments',
+              value: '${segments.length}',
+              subtitle: 'Tailored to ${project.name}',
+              icon: Icons.groups_outlined,
+              iconColor: AppTheme.primary,
+            ),
+            _buildStatMetricCard(
+              cardWidth: cardWidth,
+              title: 'Top Persona Fit',
+              value: '${topSegment.suitabilityScore.toStringAsFixed(0)}%',
+              subtitle: topSegment.name,
+              icon: Icons.star_outline,
+              iconColor: AppTheme.secondary,
+            ),
+            _buildStatMetricCard(
+              cardWidth: cardWidth,
+              title: 'Average Fit Score',
+              value: '${avgFit.toStringAsFixed(1)}%',
+              subtitle: 'Demographic compatibility',
+              icon: Icons.analytics_outlined,
+              iconColor: AppTheme.primary,
+            ),
+            _buildStatMetricCard(
+              cardWidth: cardWidth,
+              title: 'Confidence & Cache',
+              value: '$highConfidenceCount / ${segments.length} High',
+              subtitle: isCached ? 'Cached 24h fingerprint' : 'Fresh AI Analysis',
+              icon: isCached ? Icons.bolt : Icons.auto_awesome,
+              iconColor: isCached ? Colors.amber.shade700 : AppTheme.secondary,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildStatMetricCard({
+    required double cardWidth,
+    required String title,
+    required String value,
+    required String subtitle,
+    required IconData icon,
+    required Color iconColor,
+  }) {
+    return Container(
+      width: cardWidth,
+      padding: const EdgeInsets.all(AppTheme.spacingMd),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+        border: Border.all(color: AppTheme.cardBorder),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: iconColor, size: 22),
+          ),
+          const SizedBox(width: AppTheme.spacingMd),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(title, style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.textPrimary)),
+                const SizedBox(height: 2),
+                Text(subtitle, style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary), overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEvidenceSection({
+    required String title,
+    required List<String> items,
+    required Color color,
+    required IconData icon,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(AppTheme.spacingMd),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 15, color: color),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: color),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ...items.map(
+            (item) => Padding(
+              padding: const EdgeInsets.only(bottom: 3),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('• ', style: TextStyle(fontWeight: FontWeight.bold, color: color)),
+                  Expanded(
+                    child: Text(
+                      item,
+                      style: const TextStyle(fontSize: 11, color: AppTheme.textPrimary, height: 1.3),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showObservationDialog(
+    BuildContext context,
+    AppStateProvider appState,
+    ProjectModel project,
+  ) {
+    final obsController = TextEditingController(text: appState.lastAgentObservations ?? '');
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.edit_note, color: AppTheme.primary),
+              SizedBox(width: 8),
+              Text('Agent Local Market Observations', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: SizedBox(
+            width: 500,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Feed your direct on-the-ground market observations into the AI for ${project.name}. '
+                  'The AI will ground its buyer discovery in these observations while maintaining evidence boundaries.',
+                  style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: obsController,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    hintText: 'e.g. Inquiries from Penang General Hospital medical staff, high interest from young couples wanting commute to Batu Kawan Industrial Park...',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  '💡 Tip: Specific insights on demographic demand, workplace corridors, or buyer budgets significantly enhance discovery relevance.',
+                  style: TextStyle(fontSize: 11, color: AppTheme.textHint, fontStyle: FontStyle.italic),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                final observations = obsController.text.trim();
+                Navigator.of(ctx).pop();
+                appState.runAudienceDiscovery(
+                  project: project,
+                  agentObservations: observations.isNotEmpty ? observations : null,
+                  forceRefresh: true,
+                );
+              },
+              icon: const Icon(Icons.auto_awesome, size: 16),
+              label: const Text('Save & Run Discovery'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showSegmentComparisonModal(
+    BuildContext context,
+    List<AudienceSegmentModel> segments,
+  ) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: AppTheme.surface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusMedium)),
+          child: Container(
+            width: 1000,
+            height: 650,
+            padding: const EdgeInsets.all(AppTheme.spacingXl),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.compare_arrows, color: AppTheme.primary, size: 24),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Compare Audience Segments (${segments.length})',
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(ctx).pop(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Side-by-side comparison of demographic hypotheses, fit indicators, appealing features, and marketing strategies.',
+                  style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SingleChildScrollView(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: segments.map((seg) {
+                          return Container(
+                            width: 290,
+                            margin: const EdgeInsets.only(right: 16),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: AppTheme.background,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: AppTheme.cardBorder),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '#${seg.rank} ${seg.name}',
+                                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: AppTheme.primary,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Text(
+                                        '${seg.suitabilityScore.toStringAsFixed(0)}% Fit',
+                                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: seg.confidenceLevel.toLowerCase() == 'high'
+                                        ? AppTheme.secondary.withValues(alpha: 0.15)
+                                        : AppTheme.warning.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    'Confidence: ${seg.confidenceLevel}',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: seg.confidenceLevel.toLowerCase() == 'high' ? AppTheme.secondary : AppTheme.warning,
+                                    ),
+                                  ),
+                                ),
+                                const Divider(height: 20),
+                                const Text('🎯 Purpose & Demographics:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '${seg.purchasePurpose} • Age: ${seg.ageRange.isNotEmpty ? seg.ageRange : "General"}',
+                                  style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                                ),
+                                const SizedBox(height: 8),
+                                const Text('💡 Key Motivation:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 2),
+                                Text(seg.interestReason, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                                const SizedBox(height: 8),
+                                const Text('⭐ Appealing Features:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 2),
+                                if (seg.appealingFeatures.isNotEmpty)
+                                  ...seg.appealingFeatures.take(3).map((f) => Text('• $f', style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)))
+                                else
+                                  Text(seg.propertyPreferences, style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                                const SizedBox(height: 8),
+                                const Text('⚠️ Main Hesitation:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.accent)),
+                                const SizedBox(height: 2),
+                                Text(
+                                  seg.potentialObjections.isNotEmpty ? seg.potentialObjections.first : 'Price / Financing',
+                                  style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                                ),
+                                const SizedBox(height: 8),
+                                const Text('📐 Content Formats:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 2),
+                                ...seg.recommendedContentFormats.take(2).map((fmt) => Text('• $fmt', style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary))),
+                                const SizedBox(height: 8),
+                                const Text('📢 Suggested Hook:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 2),
+                                Text(
+                                  seg.recommendedMarketingMessages.isNotEmpty ? '“${seg.recommendedMarketingMessages.first}”' : '“Strategic living in prime location.”',
+                                  style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: AppTheme.primary),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _copySegmentBrief(BuildContext context, AudienceSegmentModel segment, ProjectModel project) {
+    final buffer = StringBuffer();
+    buffer.writeln('=== AUDIENCE SEGMENT BRIEF: ${segment.name} ===');
+    buffer.writeln('Project: ${project.name} (${project.location}, ${project.state})');
+    buffer.writeln('Fit Score: ${segment.suitabilityScore.toStringAsFixed(0)}% (Demographic & Feature Fit Indicator)');
+    buffer.writeln('Confidence Level: ${segment.confidenceLevel}');
+    buffer.writeln('Target Demographics: Age ${segment.ageRange}, Income ${segment.incomeRange}, Purpose: ${segment.purchasePurpose}');
+    buffer.writeln('');
+    buffer.writeln('--- Buying Motivations & Interest ---');
+    buffer.writeln(segment.interestReason);
+    buffer.writeln('');
+    buffer.writeln('--- Appealing Project Features ---');
+    for (final f in segment.appealingFeatures) {
+      buffer.writeln('• $f');
+    }
+    buffer.writeln('');
+    buffer.writeln('--- Anticipated Objections & Handling ---');
+    for (final o in segment.potentialObjections) {
+      buffer.writeln('• $o');
+    }
+    buffer.writeln('');
+    buffer.writeln('--- Recommended Content Formats ---');
+    for (final fmt in segment.recommendedContentFormats) {
+      buffer.writeln('• $fmt');
+    }
+    buffer.writeln('');
+    buffer.writeln('--- Tailored Marketing Messages ---');
+    for (final msg in segment.recommendedMarketingMessages) {
+      buffer.writeln('• "$msg"');
+    }
+    buffer.writeln('');
+    buffer.writeln('--- Verified Evidence vs Assumptions ---');
+    buffer.writeln('Verified Project Facts:');
+    for (final ev in segment.evidence) {
+      buffer.writeln('  - $ev');
+    }
+    buffer.writeln('AI Assumptions:');
+    for (final asmp in segment.assumptions) {
+      buffer.writeln('  - $asmp');
+    }
+    buffer.writeln('');
+    buffer.writeln('Disclaimer: ${segment.marketDemandDisclaimer}');
+
+    Clipboard.setData(ClipboardData(text: buffer.toString()));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Audience brief for "${segment.name}" copied to clipboard!')),
     );
   }
 }

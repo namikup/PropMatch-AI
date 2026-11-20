@@ -125,14 +125,57 @@ class MatchingService {
     final totalScore = budgetScore + locationScore + propertyTypeScore + purposeScore + timelineScore;
     final clampedScore = totalScore.clamp(0.0, 100.0);
 
-    String explanation;
-    if (clampedScore >= 80) {
-      explanation = 'High Synergy: Exceptional compatibility across budget, location, and property type. Top priority candidate for viewing appointment.';
-    } else if (clampedScore >= 60) {
-      explanation = 'Moderate Fit: Good baseline suitability with minor differences in location or timing. Worth engaging with tailored financing solutions.';
+    // Classification
+    String classification;
+    if (clampedScore >= 85) {
+      classification = 'Excellent Match';
+    } else if (clampedScore >= 70) {
+      classification = 'Good Match';
+    } else if (clampedScore >= 50) {
+      classification = 'Moderate Match';
     } else {
-      explanation = 'Low Compatibility: Substantial divergence in budget range, location, or property structure. Recommended to explore alternate portfolio projects.';
+      classification = 'Low Match';
     }
+
+    // Confidence Level
+    String confidence;
+    if (missingInfo.length >= 2) {
+      confidence = 'Low';
+    } else if (missingInfo.length == 1) {
+      confidence = 'Medium';
+    } else {
+      confidence = 'High';
+    }
+
+    // Recommended Action
+    String nextAction;
+    if (clampedScore >= 85) {
+      nextAction = 'Prioritize for private showroom preview and furnish layout options.';
+    } else if (clampedScore >= 70) {
+      nextAction = 'Engage buyer to review specific unit layouts and verify bank loan pre-qualification.';
+    } else if (clampedScore >= 50) {
+      nextAction = 'Clarify buyer criteria (specifically ${concerns.isNotEmpty ? concerns.first : 'budget and location'}) before proposing.';
+    } else {
+      nextAction = 'Retain in general nurture pipeline; project not suitable at present.';
+    }
+
+    final objections = <String>[];
+    if (budgetScore < 20) {
+      objections.add('Price point and monthly repayment commitment.');
+    }
+    if (locationScore < 20) {
+      objections.add('Commute distance to primary workplace or family hub.');
+    }
+    if (propertyTypeScore < 18) {
+      objections.add('Property format or density differs from initial criteria.');
+    }
+
+    final fallbackOpener =
+        'Hi ${buyer.name}, I noticed ${project.name} in ${project.location} fits several of your preferences for a ${project.propertyType}. Would you like me to share the digital brochure?';
+
+    final narrativeExplanation =
+        '$classification (${clampedScore.round()}% compatibility). ${factors.take(2).join(' ')} ${concerns.isNotEmpty ? 'Consideration: ${concerns.first}' : ''}'
+            .trim();
 
     return MatchModel(
       ownerId: project.ownerId,
@@ -147,10 +190,18 @@ class MatchingService {
       propertyTypeScore: propertyTypeScore,
       purposeScore: purposeScore,
       timelineScore: timelineScore,
-      explanation: explanation,
+      explanation: narrativeExplanation,
+      aiExplanation: narrativeExplanation,
       matchingFactors: factors,
       missingInformation: missingInfo,
       potentialConcerns: concerns,
+      mismatchedCriteria: concerns,
+      potentialObjections: objections,
+      confidenceLevel: confidence,
+      matchClassification: classification,
+      recommendedNextAction: nextAction,
+      suggestedConversationOpener: fallbackOpener,
+      calculationSource: 'Rule-based Deterministic Engine',
     );
   }
 

@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../models/project_model.dart';
 import '../models/buyer_model.dart';
 import '../models/lead_model.dart';
@@ -9,6 +9,14 @@ import '../models/match_model.dart';
 import '../models/campaign_model.dart';
 import '../models/consent_record_model.dart';
 import '../models/user_model.dart';
+import '../models/prospect_model.dart';
+import '../models/prospect_source_model.dart';
+import '../models/prospect_consent_event_model.dart';
+import '../models/prospect_activity_model.dart';
+import '../models/prospect_import_job_model.dart';
+import '../services/crm_import/import_validator.dart';
+import '../services/crm_import/duplicate_detector.dart';
+import '../services/crm_import/batch_importer.dart';
 import '../repositories/project_repository.dart';
 import '../repositories/buyer_repository.dart';
 import '../repositories/lead_repository.dart';
@@ -16,12 +24,14 @@ import '../repositories/followup_repository.dart';
 import '../repositories/campaign_repository.dart';
 import '../repositories/consent_repository.dart';
 import '../repositories/auth_repository.dart';
+import '../repositories/prospect_repository.dart';
 import '../repositories/firestore_project_repository.dart';
 import '../repositories/firestore_buyer_repository.dart';
 import '../repositories/firestore_lead_repository.dart';
 import '../repositories/firestore_followup_repository.dart';
 import '../repositories/firestore_campaign_repository.dart';
 import '../repositories/firestore_consent_repository.dart';
+import '../repositories/firestore_prospect_repository.dart';
 import '../repositories/firebase_auth_repository.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -29,6 +39,7 @@ import '../services/demo_data_service.dart';
 import '../services/ai_service.dart';
 import '../services/marketing_service.dart';
 import '../services/ai_backend_service.dart';
+import '../services/prospect_sources/source_registry.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
 class AppStateProvider extends ChangeNotifier {
@@ -39,6 +50,7 @@ class AppStateProvider extends ChangeNotifier {
   final CampaignRepository _campaignRepository;
   final ConsentRepository _consentRepository;
   final AuthRepository _authRepository;
+  final ProspectRepository _prospectRepository;
   AIBackendService _aiService;
 
   PropertyAnalysisResult? _currentPropertyAnalysis;
@@ -58,6 +70,8 @@ class AppStateProvider extends ChangeNotifier {
   void setAIService(AIBackendService service) {
     _aiService = service;
     _cachedPropertyAnalyses.clear();
+    _cachedAudienceSegments.clear();
+    _audienceDiscoveryError = null;
     notifyListeners();
   }
 
@@ -76,6 +90,23 @@ class AppStateProvider extends ChangeNotifier {
   CampaignRepository get campaignRepository => _campaignRepository;
   ConsentRepository get consentRepository => _consentRepository;
   AuthRepository get authRepository => _authRepository;
+  ProspectRepository get prospectRepository => _prospectRepository;
+
+  // Prospect Intelligence (Phase 4.1)
+  List<ProspectModel> _prospects = [];
+  List<ProspectSourceModel> _prospectSources = [];
+  ProspectModel? _selectedProspect;
+  List<ProspectConsentEventModel> _selectedProspectConsents = [];
+  List<ProspectActivityModel> _selectedProspectActivities = [];
+  bool _isLoadingProspects = false;
+  String? _prospectError;
+  String _prospectSearchQuery = '';
+  String _prospectStatusFilter = 'All';
+  String _prospectEligibilityFilter = 'All';
+  String _prospectSourceFilter = 'All';
+  String _prospectVerificationFilter = 'All';
+  bool _hasGeneratedDemoProspects = false;
+  List<ProspectImportJobModel> _importJobs = [];
 
   // Consent Records
   List<ConsentRecordModel> _consentRecords = [];
@@ -94,15 +125,22 @@ class AppStateProvider extends ChangeNotifier {
   // AI Audience Discovery
   List<AudienceSegmentModel> _audienceSegments = [];
   bool _isDiscoveringAudience = false;
+  String? _audienceDiscoveryError;
+  String? _lastAgentObservations;
+  final Map<String, List<AudienceSegmentModel>> _cachedAudienceSegments = {};
   Map<String, List<GeographicTarget>> _geoStrategies = {}; // segmentId -> targets
   Map<String, SegmentMarketingContent> _segmentMarketingContent = {}; // segmentId -> content
   bool _isGeneratingSegmentContent = false;
   String? _generatingContentForSegmentId;
 
-  // AI Buyer Matching
+  // AI Buyer Matching (Phase 3.3B)
   List<MatchModel> _matches = [];
   bool _isMatching = false;
   MatchModel? _selectedMatch;
+  String? _matchingError;
+  String _selectedMatchFilter = 'All';
+  String _matchSortOrder = 'score';
+  final Map<String, List<MatchModel>> _cachedProjectMatches = {};
 
   // Leads
   List<LeadModel> _leads = [];
@@ -153,19 +191,94 @@ class AppStateProvider extends ChangeNotifier {
 
   List<AudienceSegmentModel> get audienceSegments => _audienceSegments;
   bool get isDiscoveringAudience => _isDiscoveringAudience;
+  String? get audienceDiscoveryError => _audienceDiscoveryError;
+  String? get lastAgentObservations => _lastAgentObservations;
+  Map<String, List<AudienceSegmentModel>> get cachedAudienceSegments =>
+      Map.unmodifiable(_cachedAudienceSegments);
   Map<String, List<GeographicTarget>> get geoStrategies => _geoStrategies;
   Map<String, SegmentMarketingContent> get segmentMarketingContent => _segmentMarketingContent;
   bool get isGeneratingSegmentContent => _isGeneratingSegmentContent;
   String? get generatingContentForSegmentId => _generatingContentForSegmentId;
 
-  List<MatchModel> get matches => _matches;
+  List<MatchModel> get matches => List.unmodifiable(_matches);
   bool get isMatching => _isMatching;
   MatchModel? get selectedMatch => _selectedMatch;
+  String? get matchingError => _matchingError;
+  String get selectedMatchFilter => _selectedMatchFilter;
+  String get matchSortOrder => _matchSortOrder;
+
+  List<MatchModel> get filteredMatches {
+    var list = _matches.where((m) {
+      if (_selectedMatchFilter == 'All') return true;
+      if (_selectedMatchFilter == 'Excellent Match' || _selectedMatchFilter.contains('85')) return m.isExcellentMatch;
+      if (_selectedMatchFilter == 'Good Match' || _selectedMatchFilter.contains('70')) return m.isGoodMatch;
+      if (_selectedMatchFilter == 'Moderate Match' || _selectedMatchFilter.contains('50')) return m.isModerateMatch;
+      if (_selectedMatchFilter == 'Low Match' || _selectedMatchFilter.contains('<50')) return m.isLowMatch;
+      return true;
+    }).toList();
+
+    if (_matchSortOrder == 'score') {
+      list.sort((a, b) => b.overallMatchPercentage.compareTo(a.overallMatchPercentage));
+    } else if (_matchSortOrder == 'budget') {
+      list.sort((a, b) => b.budgetScore.compareTo(a.budgetScore));
+    } else if (_matchSortOrder == 'timeline') {
+      list.sort((a, b) => b.timelineScore.compareTo(a.timelineScore));
+    }
+    return list;
+  }
+
+  int get totalEvaluatedMatches => _matches.length;
+  int get excellentMatchesCount => _matches.where((m) => m.isExcellentMatch).length;
+  int get goodMatchesCount => _matches.where((m) => m.isGoodMatch).length;
+  int get moderateMatchesCount => _matches.where((m) => m.isModerateMatch).length;
+  int get lowMatchesCount => _matches.where((m) => m.isLowMatch).length;
 
   List<LeadModel> get leads => List.unmodifiable(_leads);
   List<FollowupModel> get followups => List.unmodifiable(_followups);
   List<CampaignModel> get campaigns => List.unmodifiable(_campaigns);
   List<ConsentRecordModel> get consentRecords => List.unmodifiable(_consentRecords);
+
+  // Prospect Intelligence Getters (Phase 4.1)
+  List<ProspectModel> get allProspects => List.unmodifiable(_prospects);
+  List<ProspectSourceModel> get prospectSources => List.unmodifiable(_prospectSources);
+  ProspectModel? get selectedProspect => _selectedProspect;
+  List<ProspectConsentEventModel> get selectedProspectConsents => List.unmodifiable(_selectedProspectConsents);
+  List<ProspectActivityModel> get selectedProspectActivities => List.unmodifiable(_selectedProspectActivities);
+  bool get isLoadingProspects => _isLoadingProspects;
+  String? get prospectError => _prospectError;
+  String get prospectSearchQuery => _prospectSearchQuery;
+  String get prospectStatusFilter => _prospectStatusFilter;
+  String get prospectEligibilityFilter => _prospectEligibilityFilter;
+  String get prospectSourceFilter => _prospectSourceFilter;
+  String get prospectVerificationFilter => _prospectVerificationFilter;
+  bool get hasGeneratedDemoProspects => _hasGeneratedDemoProspects;
+  List<ProspectImportJobModel> get importJobs => List.unmodifiable(_importJobs);
+
+  List<ProspectModel> get filteredProspects {
+    return _prospects.where((p) {
+      final matchesSearch = _prospectSearchQuery.isEmpty ||
+          p.fullName.toLowerCase().contains(_prospectSearchQuery.toLowerCase()) ||
+          p.phone.contains(_prospectSearchQuery) ||
+          p.email.toLowerCase().contains(_prospectSearchQuery.toLowerCase()) ||
+          p.preferredLocations.any((l) => l.toLowerCase().contains(_prospectSearchQuery.toLowerCase())) ||
+          p.preferredState.toLowerCase().contains(_prospectSearchQuery.toLowerCase());
+
+      final matchesStatus = _prospectStatusFilter == 'All' || p.status == _prospectStatusFilter;
+      final matchesEligibility = _prospectEligibilityFilter == 'All' || p.contactEligibility == _prospectEligibilityFilter;
+      final matchesSource = _prospectSourceFilter == 'All' || p.primarySource == _prospectSourceFilter;
+      final matchesVerification = _prospectVerificationFilter == 'All' || p.verificationStatus == _prospectVerificationFilter;
+
+      return matchesSearch && matchesStatus && matchesEligibility && matchesSource && matchesVerification;
+    }).toList();
+  }
+
+  int get totalProspectsCount => _prospects.length;
+  int get discoveredProspectsCount => _prospects.where((p) => p.status == 'Discovered').length;
+  int get importedProspectsCount => _prospects.where((p) => p.status == 'Imported').length;
+  int get verifiedProspectsCount => _prospects.where((p) => p.isVerified).length;
+  int get contactEligibleProspectsCount => _prospects.where((p) => p.isEligibleForContact).length;
+  int get qualifiedProspectsCount => _prospects.where((p) => p.status == 'Qualified').length;
+  int get demoProspectsCount => _prospects.where((p) => p.isDemo).length;
 
   MarketingContentResult? get generatedMarketingContent => _generatedMarketingContent;
   AudienceSegmentModel? get selectedAudienceForMarketing => _selectedAudienceForMarketing;
@@ -206,6 +319,8 @@ class AppStateProvider extends ChangeNotifier {
     final total = _matches.fold(0.0, (acc, m) => acc + m.overallMatchPercentage);
     return total / _matches.length;
   }
+
+  double get averageMatchScore => averageMatchRate;
 
   // Dynamic Analytics Computations
   double get averageBuyerBudget {
@@ -269,6 +384,7 @@ class AppStateProvider extends ChangeNotifier {
     CampaignRepository? campaignRepository,
     ConsentRepository? consentRepository,
     AuthRepository? authRepository,
+    ProspectRepository? prospectRepository,
     AIBackendService? aiService,
   })  : _projectRepository = projectRepository ??
             InMemoryProjectRepository(DemoDataService.getInitialProjects()),
@@ -282,6 +398,11 @@ class AppStateProvider extends ChangeNotifier {
         _consentRepository =
             consentRepository ?? InMemoryConsentRepository(),
         _authRepository = authRepository ?? InMemoryAuthRepository(),
+        _prospectRepository = prospectRepository ??
+            InMemoryProspectRepository(
+              DemoDataService.getInitialDemoProspects(),
+              ProspectSourceRegistry.getInitialSourcesForAgent('demo-agent-001'),
+            ),
         _aiService = aiService ?? const LocalRuleBasedAIService() {
     _activeAuthUid = _authRepository.currentUser?.uid;
     _initData();
@@ -303,6 +424,7 @@ class AppStateProvider extends ChangeNotifier {
       followupRepository: FirestoreFollowupRepository(firestore: firestore),
       campaignRepository: FirestoreCampaignRepository(firestore: firestore),
       consentRepository: FirestoreConsentRepository(firestore: firestore),
+      prospectRepository: FirestoreProspectRepository(firestore: firestore),
       authRepository: FirebaseAuthRepository(
         firebaseAuth: firebaseAuth,
         firestore: firestore,
@@ -330,6 +452,9 @@ class AppStateProvider extends ChangeNotifier {
       }
       _leads = DemoDataService.getInitialLeads();
       _followups = DemoDataService.getInitialFollowups();
+      _prospects = DemoDataService.getInitialDemoProspects(_defaultOwnerId);
+      _prospectSources = ProspectSourceRegistry.getInitialSourcesForAgent(_defaultOwnerId);
+      _hasGeneratedDemoProspects = true;
     }
   }
 
@@ -354,11 +479,23 @@ class AppStateProvider extends ChangeNotifier {
     _consentRecords = [];
     _audienceSegments = [];
     _matches = [];
+    _prospects = [];
+    _prospectSources = [];
+    _selectedProspect = null;
+    _selectedProspectConsents = [];
+    _selectedProspectActivities = [];
+    _isLoadingProspects = false;
+    _prospectError = null;
+    _hasGeneratedDemoProspects = false;
+    _importJobs = [];
     _generatedMarketingContent = null;
     _geoStrategies = {};
     _segmentMarketingContent = {};
     _currentPropertyAnalysis = null;
     _cachedPropertyAnalyses.clear();
+    _cachedAudienceSegments.clear();
+    _audienceDiscoveryError = null;
+    _lastAgentObservations = null;
     _isAnalyzingProperty = false;
     _propertyAnalysisError = null;
     _hasGeneratedDemoBuyers = false;
@@ -389,6 +526,9 @@ class AppStateProvider extends ChangeNotifier {
       }
       _leads = DemoDataService.getInitialLeads();
       _followups = DemoDataService.getInitialFollowups();
+      _prospects = DemoDataService.getInitialDemoProspects(_defaultOwnerId);
+      _prospectSources = ProspectSourceRegistry.getInitialSourcesForAgent(_defaultOwnerId);
+      _hasGeneratedDemoProspects = true;
       notifyListeners();
     } else {
       _loadFromRepositories(sessionId: currentSession, ownerId: user.uid);
@@ -411,6 +551,9 @@ class AppStateProvider extends ChangeNotifier {
       final repoFollowups = await _followupRepository.getFollowups(ownerId: ownerId);
       final repoCampaigns = await _campaignRepository.getCampaigns(ownerId: ownerId);
       final repoConsents = await _consentRepository.getConsentRecords(ownerId: ownerId);
+      final repoProspects = await _prospectRepository.getProspects(ownerId: ownerId);
+      final repoSources = await _prospectRepository.getDataSources(ownerId: ownerId);
+      final repoJobs = await _prospectRepository.getImportJobs(ownerId: ownerId);
 
       // Prevent race conditions: ignore response if session has changed
       if (sessionId != _authSessionId) {
@@ -441,6 +584,9 @@ class AppStateProvider extends ChangeNotifier {
         _followups = repoFollowups;
         _campaigns = repoCampaigns;
         _consentRecords = repoConsents;
+        _prospects = repoProspects;
+        _prospectSources = repoSources;
+        _importJobs = repoJobs;
       } else {
         // Demo account: if repository has records, synchronize; otherwise retain demo fallbacks
         if (repoProjects.isNotEmpty) {
@@ -461,6 +607,15 @@ class AppStateProvider extends ChangeNotifier {
         }
         if (repoConsents.isNotEmpty) {
           _consentRecords = repoConsents;
+        }
+        if (repoProspects.isNotEmpty) {
+          _prospects = repoProspects;
+        }
+        if (repoSources.isNotEmpty) {
+          _prospectSources = repoSources;
+        }
+        if (repoJobs.isNotEmpty) {
+          _importJobs = repoJobs;
         }
       }
     } catch (e) {
@@ -493,9 +648,13 @@ class AppStateProvider extends ChangeNotifier {
     _selectedProject = project;
     _currentPropertyAnalysis = _cachedPropertyAnalyses[project.id];
     _propertyAnalysisError = null;
-    // Clear project-specific AI results
-    _audienceSegments = [];
-    _matches = [];
+    // Restore cached audience segments or initialize empty
+    _audienceSegments = _cachedAudienceSegments[project.id] ?? [];
+    _audienceDiscoveryError = null;
+    // Restore cached matches or initialize empty
+    _matches = _cachedProjectMatches[project.id] ?? [];
+    _selectedMatch = _matches.isNotEmpty ? _matches.first : null;
+    _matchingError = null;
     _generatedMarketingContent = null;
     _geoStrategies = {};
     _segmentMarketingContent = {};
@@ -549,6 +708,8 @@ class AppStateProvider extends ChangeNotifier {
     final wasSelected = _selectedProject?.id == projectId;
     _projects.removeAt(index);
     _cachedPropertyAnalyses.remove(projectId);
+    _cachedAudienceSegments.remove(projectId);
+    _cachedProjectMatches.remove(projectId);
     if (wasSelected) {
       _selectedProject = _projects.isNotEmpty ? _projects.first : null;
       _currentPropertyAnalysis = null;
@@ -650,31 +811,539 @@ class AppStateProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --- PROSPECT INTELLIGENCE ACTIONS (PHASE 4.1) ---
+  void setProspectSearchQuery(String query) {
+    _prospectSearchQuery = query;
+    notifyListeners();
+  }
+
+  void setProspectStatusFilter(String filter) {
+    _prospectStatusFilter = filter;
+    notifyListeners();
+  }
+
+  void setProspectEligibilityFilter(String filter) {
+    _prospectEligibilityFilter = filter;
+    notifyListeners();
+  }
+
+  void setProspectSourceFilter(String filter) {
+    _prospectSourceFilter = filter;
+    notifyListeners();
+  }
+
+  void setProspectVerificationFilter(String filter) {
+    _prospectVerificationFilter = filter;
+    notifyListeners();
+  }
+
+  Future<void> selectProspect(ProspectModel? prospect) async {
+    _selectedProspect = prospect;
+    _selectedProspectConsents = [];
+    _selectedProspectActivities = [];
+    notifyListeners();
+
+    if (prospect != null) {
+      try {
+        final consents = await _prospectRepository.getConsentsForProspect(
+          prospect.id,
+          ownerId: currentOwnerId,
+        );
+        final activities = await _prospectRepository.getActivitiesForProspect(
+          prospect.id,
+          ownerId: currentOwnerId,
+        );
+        _selectedProspectConsents = consents;
+        _selectedProspectActivities = activities;
+      } catch (e) {
+        // Fallback gracefully on fetch error
+      }
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadProspects() async {
+    _isLoadingProspects = true;
+    _prospectError = null;
+    notifyListeners();
+    try {
+      _prospects = await _prospectRepository.getProspects(ownerId: currentOwnerId);
+      _prospectSources = await _prospectRepository.getDataSources(ownerId: currentOwnerId);
+    } catch (e) {
+      _prospectError = e.toString();
+    } finally {
+      _isLoadingProspects = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> createProspect(ProspectModel prospect) async {
+    _prospects.insert(0, prospect);
+    notifyListeners();
+    try {
+      await _prospectRepository.createProspect(prospect);
+      final activity = ProspectActivityModel(
+        id: 'act-${DateTime.now().millisecondsSinceEpoch}',
+        ownerId: prospect.ownerId,
+        prospectId: prospect.id,
+        activityType: 'Discovered',
+        title: 'Prospect Discovered & Ingested',
+        description: 'Captured via ${prospect.primarySource}.',
+        actor: 'Agent User',
+      );
+      await _prospectRepository.recordActivity(activity);
+      if (_selectedProspect?.id == prospect.id) {
+        _selectedProspectActivities.insert(0, activity);
+      }
+      notifyListeners();
+    } catch (_) {
+      _prospects.removeWhere((p) => p.id == prospect.id);
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> updateProspect(ProspectModel prospect) async {
+    final idx = _prospects.indexWhere((p) => p.id == prospect.id);
+    if (idx == -1) return;
+    final old = _prospects[idx];
+    _prospects[idx] = prospect;
+    if (_selectedProspect?.id == prospect.id) {
+      _selectedProspect = prospect;
+    }
+    notifyListeners();
+    try {
+      await _prospectRepository.updateProspect(prospect);
+    } catch (_) {
+      _prospects[idx] = old;
+      if (_selectedProspect?.id == prospect.id) {
+        _selectedProspect = old;
+      }
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> updateProspectStatus(String prospectId, String newStatus) async {
+    final idx = _prospects.indexWhere((p) => p.id == prospectId);
+    if (idx != -1) {
+      final old = _prospects[idx];
+      final updated = old.copyWith(
+        status: newStatus,
+        updatedAt: DateTime.now(),
+      );
+      await updateProspect(updated);
+
+      final activity = ProspectActivityModel(
+        id: 'act-${DateTime.now().millisecondsSinceEpoch}',
+        ownerId: updated.ownerId,
+        prospectId: updated.id,
+        activityType: 'Status Change',
+        title: 'Lifecycle status changed from ${old.status} to $newStatus',
+        actor: 'Agent User',
+      );
+      await _prospectRepository.recordActivity(activity);
+      if (_selectedProspect?.id == prospectId) {
+        _selectedProspectActivities.insert(0, activity);
+      }
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateProspectVerification(String prospectId, String newVerification) async {
+    final idx = _prospects.indexWhere((p) => p.id == prospectId);
+    if (idx != -1) {
+      final old = _prospects[idx];
+      final updated = old.copyWith(
+        verificationStatus: newVerification,
+        updatedAt: DateTime.now(),
+      );
+      await updateProspect(updated);
+
+      final activity = ProspectActivityModel(
+        id: 'act-${DateTime.now().millisecondsSinceEpoch}',
+        ownerId: updated.ownerId,
+        prospectId: updated.id,
+        activityType: 'Verification',
+        title: 'Verification upgraded to $newVerification',
+        actor: 'Agent User',
+      );
+      await _prospectRepository.recordActivity(activity);
+      if (_selectedProspect?.id == prospectId) {
+        _selectedProspectActivities.insert(0, activity);
+      }
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateContactEligibility(
+    String prospectId,
+    String eligibility, {
+    String? reason,
+  }) async {
+    final idx = _prospects.indexWhere((p) => p.id == prospectId);
+    if (idx != -1) {
+      final old = _prospects[idx];
+      final updated = old.copyWith(
+        contactEligibility: eligibility,
+        updatedAt: DateTime.now(),
+      );
+      await updateProspect(updated);
+
+      final activity = ProspectActivityModel(
+        id: 'act-${DateTime.now().millisecondsSinceEpoch}',
+        ownerId: updated.ownerId,
+        prospectId: updated.id,
+        activityType: 'Eligibility Change',
+        title: 'Contact Eligibility set to $eligibility',
+        description: reason ?? 'Agent updated contact eligibility compliance status.',
+        actor: 'Agent User',
+      );
+      await _prospectRepository.recordActivity(activity);
+      if (_selectedProspect?.id == prospectId) {
+        _selectedProspectActivities.insert(0, activity);
+      }
+      notifyListeners();
+    }
+  }
+
+  Future<void> recordProspectConsent(ProspectConsentEventModel consent) async {
+    await _prospectRepository.recordConsentEvent(consent);
+    if (_selectedProspect?.id == consent.prospectId) {
+      _selectedProspectConsents.insert(0, consent);
+    }
+
+    final idx = _prospects.indexWhere((p) => p.id == consent.prospectId);
+    if (consent.status == 'Granted') {
+      final isCommunicationConsent = consent.purpose == 'Direct Inquiry Response' ||
+          consent.purpose == 'Property Recommendations' ||
+          consent.purpose == 'Marketing & Promotion';
+
+      if (idx != -1) {
+        final existing = _prospects[idx];
+        final updatedPurposes = <String>{
+          ...existing.consentedPurposes,
+          consent.purpose,
+        }.toList();
+        final updatedChannels = <String>{
+          ...existing.consentedChannels,
+          ...consent.communicationChannels,
+        }.toList();
+        await updateProspect(
+          existing.copyWith(
+            consentedPurposes: updatedPurposes,
+            consentedChannels: updatedChannels,
+            updatedAt: DateTime.now(),
+          ),
+        );
+      }
+
+      if (isCommunicationConsent) {
+        await updateContactEligibility(
+          consent.prospectId,
+          'Eligible',
+          reason: 'Consent recorded: ${consent.purpose} (${consent.source})',
+        );
+      }
+    } else if (consent.status == 'Withdrawn') {
+      if (idx != -1) {
+        final existing = _prospects[idx];
+        final remainingPurposes = existing.consentedPurposes
+            .where((p) => p != consent.purpose && p != consent.consentType)
+            .toList();
+        await updateProspect(
+          existing.copyWith(
+            consentedPurposes: remainingPurposes,
+            consentedChannels: remainingPurposes.isEmpty ? const [] : existing.consentedChannels,
+            updatedAt: DateTime.now(),
+          ),
+        );
+      }
+      await updateContactEligibility(
+        consent.prospectId,
+        'Do Not Contact',
+        reason: 'Consent withdrawn: ${consent.purpose}',
+      );
+    }
+
+    final activity = ProspectActivityModel(
+      id: 'act-${DateTime.now().millisecondsSinceEpoch}',
+      ownerId: consent.ownerId,
+      prospectId: consent.prospectId,
+      activityType: 'Consent Recorded',
+      title: 'Consent (${consent.purpose}) status: ${consent.status}',
+      description: 'Source: ${consent.source}. ${consent.evidenceText}',
+      actor: 'Agent User',
+    );
+    await _prospectRepository.recordActivity(activity);
+    if (_selectedProspect?.id == consent.prospectId) {
+      _selectedProspectActivities.insert(0, activity);
+    }
+    notifyListeners();
+  }
+
+  Future<void> deleteProspect(String prospectId) async {
+    final idx = _prospects.indexWhere((p) => p.id == prospectId);
+    if (idx == -1) return;
+    final old = _prospects[idx];
+    _prospects.removeAt(idx);
+    if (_selectedProspect?.id == prospectId) {
+      _selectedProspect = null;
+      _selectedProspectConsents = [];
+      _selectedProspectActivities = [];
+    }
+    notifyListeners();
+    try {
+      await _prospectRepository.deleteProspect(prospectId, ownerId: currentOwnerId);
+    } catch (_) {
+      _prospects.insert(idx, old);
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> generateDemoProspects() async {
+    final demoList = DemoDataService.getInitialDemoProspects(currentOwnerId);
+    final demoConsents = DemoDataService.getInitialDemoConsents(currentOwnerId);
+    final demoActivities = DemoDataService.getInitialDemoActivities(currentOwnerId);
+
+    // Filter out existing demo items in memory
+    _prospects.removeWhere((p) => p.isDemo);
+    _prospects.addAll(demoList);
+    _hasGeneratedDemoProspects = true;
+    notifyListeners();
+
+    try {
+      await _prospectRepository.deleteDemoProspects(ownerId: currentOwnerId);
+      await _prospectRepository.saveBulkProspects(demoList);
+      for (final c in demoConsents) {
+        await _prospectRepository.recordConsentEvent(c);
+      }
+      for (final a in demoActivities) {
+        await _prospectRepository.recordActivity(a);
+      }
+    } catch (_) {
+      // In-memory resilience
+    }
+  }
+
+  Future<void> purgeDemoProspects() async {
+    _prospects.removeWhere((p) => p.isDemo);
+    if (_selectedProspect?.isDemo == true) {
+      _selectedProspect = null;
+      _selectedProspectConsents = [];
+      _selectedProspectActivities = [];
+    }
+    _hasGeneratedDemoProspects = false;
+    notifyListeners();
+    try {
+      await _prospectRepository.deleteDemoProspects(ownerId: currentOwnerId);
+    } catch (_) {
+      // In-memory resilience
+    }
+  }
+
+  Future<BuyerModel> convertProspectToBuyer(ProspectModel prospect) async {
+    final buyer = BuyerModel(
+      id: 'byr-${DateTime.now().millisecondsSinceEpoch}',
+      ownerId: currentOwnerId,
+      name: prospect.fullName,
+      email: prospect.email,
+      phone: prospect.phone,
+      budgetMin: prospect.budgetMin,
+      budgetMax: prospect.budgetMax,
+      preferredLocation: prospect.preferredLocations.isNotEmpty ? prospect.preferredLocations.first : prospect.preferredState,
+      preferredState: prospect.preferredState,
+      propertyType: prospect.propertyTypes.isNotEmpty ? prospect.propertyTypes.first : 'Condominium',
+      purchasePurpose: prospect.purchasePurpose,
+      buyingTimeline: prospect.buyingTimeline,
+      leadSource: prospect.primarySource,
+      status: 'Contacted',
+      isDemo: prospect.isDemo,
+      notes: 'Converted from Prospect Database (Source: ${prospect.primarySource}). ${prospect.notes}',
+      createdAt: DateTime.now(),
+    );
+    await addBuyer(buyer);
+    await updateProspectStatus(prospect.id, 'Qualified');
+
+    final activity = ProspectActivityModel(
+      id: 'act-${DateTime.now().millisecondsSinceEpoch}',
+      ownerId: prospect.ownerId,
+      prospectId: prospect.id,
+      activityType: 'Converted to Buyer',
+      title: 'Promoted to Active Buyer CRM Database',
+      description: 'Created CRM Buyer record: ${buyer.id}',
+      actor: 'Agent User',
+    );
+    await _prospectRepository.recordActivity(activity);
+    if (_selectedProspect?.id == prospect.id) {
+      _selectedProspectActivities.insert(0, activity);
+    }
+    notifyListeners();
+    return buyer;
+  }
+
+  Future<BatchImportResult> executeProspectImportJob({
+    required ImportPreviewReport preview,
+    required DuplicateResolutionStrategy duplicateStrategy,
+    String? jobId,
+    void Function(BatchImportProgress)? onProgress,
+  }) async {
+    final importer = CRMBatchImporter(
+      repository: _prospectRepository,
+      ownerId: currentOwnerId,
+    );
+
+    final result = await importer.executeImport(
+      preview: preview,
+      duplicateStrategy: duplicateStrategy,
+      jobId: jobId,
+      onProgress: onProgress,
+    );
+
+    await _prospectRepository.saveImportJob(result.job);
+    _importJobs = await _prospectRepository.getImportJobs(ownerId: currentOwnerId);
+
+    // Refresh prospects from repository
+    _prospects = await _prospectRepository.getProspects(ownerId: currentOwnerId);
+    notifyListeners();
+
+    return result;
+  }
+
   // --- AI AUDIENCE DISCOVERY ---
-  Future<void> runAudienceDiscovery([ProjectModel? project]) async {
+  Future<List<AudienceSegmentModel>?> runAudienceDiscovery({
+    ProjectModel? project,
+    PropertyAnalysisResult? existingAnalysis,
+    String? agentObservations,
+    bool forceRefresh = false,
+  }) async {
     final targetProject = project ?? _selectedProject;
-    if (targetProject == null) return;
+    if (targetProject == null) {
+      _audienceDiscoveryError = 'No project selected for audience discovery.';
+      notifyListeners();
+      return null;
+    }
+
+    final validationError = validateProjectForAnalysis(targetProject);
+    if (validationError != null) {
+      _audienceDiscoveryError = validationError;
+      notifyListeners();
+      return null;
+    }
+
+    // 1. Check in-memory session cache first if not forcing refresh
+    if (!forceRefresh && _cachedAudienceSegments.containsKey(targetProject.id)) {
+      _audienceSegments = _cachedAudienceSegments[targetProject.id]!;
+      _lastAgentObservations = agentObservations ?? _lastAgentObservations;
+      _audienceDiscoveryError = null;
+      if (_audienceSegments.isNotEmpty) {
+        _selectedAudienceForMarketing = _audienceSegments.first;
+      }
+      notifyListeners();
+      return _audienceSegments;
+    }
+
+    // 2. If not forcing refresh, attempt Firestore remote cache lookup
+    if (!forceRefresh) {
+      try {
+        final cached = await _aiService.getCachedAudienceSegments(targetProject.id);
+        if (cached != null && cached.isNotEmpty) {
+          _audienceSegments = cached;
+          _cachedAudienceSegments[targetProject.id] = cached;
+          _lastAgentObservations = agentObservations ?? _lastAgentObservations;
+          _audienceDiscoveryError = null;
+          if (_audienceSegments.isNotEmpty) {
+            _selectedAudienceForMarketing = _audienceSegments.first;
+          }
+          for (final seg in _audienceSegments) {
+            _geoStrategies[seg.id] = AIService.generateGeographicStrategy(targetProject, seg);
+          }
+          notifyListeners();
+          return cached;
+        }
+      } catch (_) {
+        // Fall through to run live / rule engine
+      }
+    }
 
     _isDiscoveringAudience = true;
+    _audienceDiscoveryError = null;
     _geoStrategies = {};
     _segmentMarketingContent = {};
+    _lastAgentObservations = agentObservations;
     notifyListeners();
 
-    // Fast asynchronous simulation for sleek UI responsiveness
-    await Future.delayed(const Duration(milliseconds: 600));
+    try {
+      final analysisToUse = existingAnalysis ??
+          _currentPropertyAnalysis ??
+          _cachedPropertyAnalyses[targetProject.id];
 
-    _audienceSegments = await _aiService.discoverAudienceSegments(targetProject);
+      final results = await _aiService.discoverAudienceSegments(
+        targetProject,
+        existingAnalysis: analysisToUse,
+        agentObservations: agentObservations,
+        forceRefresh: forceRefresh,
+      );
 
-    // Auto-generate geographic strategies for all segments
-    for (final seg in _audienceSegments) {
-      _geoStrategies[seg.id] = AIService.generateGeographicStrategy(targetProject, seg);
+      _audienceSegments = results;
+      _cachedAudienceSegments[targetProject.id] = results;
+      _audienceDiscoveryError = null;
+
+      // Auto-generate geographic strategies for all segments
+      for (final seg in _audienceSegments) {
+        _geoStrategies[seg.id] = AIService.generateGeographicStrategy(targetProject, seg);
+      }
+
+      if (_audienceSegments.isNotEmpty) {
+        _selectedAudienceForMarketing = _audienceSegments.first;
+      }
+      return results;
+    } catch (e) {
+      _audienceDiscoveryError = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+      return null;
+    } finally {
+      _isDiscoveringAudience = false;
+      notifyListeners();
     }
+  }
 
-    if (_audienceSegments.isNotEmpty) {
-      _selectedAudienceForMarketing = _audienceSegments.first;
+  /// Clears the discovered audience segments for a project or current project.
+  void clearAudienceDiscovery({String? projectId}) {
+    if (projectId != null) {
+      _cachedAudienceSegments.remove(projectId);
+      if (_selectedProject?.id == projectId) {
+        _audienceSegments = [];
+      }
+    } else {
+      _audienceSegments = [];
     }
-    _isDiscoveringAudience = false;
+    _audienceDiscoveryError = null;
     notifyListeners();
+  }
+
+  /// Explicitly saves the current or given audience segments to Cloud Firestore.
+  Future<void> saveAudienceSegmentsToFirestore([List<AudienceSegmentModel>? segmentsToSave]) async {
+    final list = segmentsToSave ?? _audienceSegments;
+    if (list.isEmpty) return;
+
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+      final collection = FirebaseFirestore.instance.collection('audience_segments');
+      for (final segment in list) {
+        final docRef = collection.doc(segment.id);
+        batch.set(docRef, {
+          ...segment.toMap(),
+          'ownerId': currentOwnerId,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+      await batch.commit();
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AppStateProvider] saveAudienceSegmentsToFirestore error: $e');
+      }
+    }
   }
 
   /// Validates that a project has sufficient data for high-quality AI analysis.
@@ -799,8 +1468,21 @@ class AppStateProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // --- AI BUYER MATCHING ---
-  Future<void> runBuyerMatching([ProjectModel? project]) async {
+  // --- AI BUYER MATCHING (Phase 3.3B) ---
+  void setMatchFilter(String filter) {
+    _selectedMatchFilter = filter;
+    notifyListeners();
+  }
+
+  void setMatchSortOrder(String sort) {
+    _matchSortOrder = sort;
+    notifyListeners();
+  }
+
+  Future<void> runBuyerMatching([
+    ProjectModel? project,
+    bool forceRefresh = false,
+  ]) async {
     final targetProject = project ?? _selectedProject;
     if (targetProject == null) return;
 
@@ -809,21 +1491,67 @@ class AppStateProvider extends ChangeNotifier {
       generate100DemoBuyers();
     }
 
-    _isMatching = true;
-    notifyListeners();
-
-    await Future.delayed(const Duration(milliseconds: 700));
-
-    _matches = await _aiService.matchBuyers(
-      project: targetProject,
-      buyers: _buyers,
-    );
-
-    if (_matches.isNotEmpty) {
-      _selectedMatch = _matches.first;
+    // Check memory cache first
+    if (!forceRefresh && _cachedProjectMatches.containsKey(targetProject.id)) {
+      _matches = _cachedProjectMatches[targetProject.id]!;
+      _selectedMatch = _matches.isNotEmpty ? _matches.first : null;
+      _matchingError = null;
+      notifyListeners();
+      return;
     }
 
-    _isMatching = false;
+    _isMatching = true;
+    _matchingError = null;
+    notifyListeners();
+
+    try {
+      // Check Firestore / backend cache if not force refreshing
+      if (!forceRefresh) {
+        final cached = await _aiService.getCachedMatches(targetProject.id);
+        if (cached != null && cached.isNotEmpty) {
+          _cachedProjectMatches[targetProject.id] = cached;
+          _matches = cached;
+          _selectedMatch = _matches.isNotEmpty ? _matches.first : null;
+          _isMatching = false;
+          notifyListeners();
+          return;
+        }
+      }
+
+      final results = await _aiService.matchBuyers(
+        project: targetProject,
+        buyers: _buyers,
+        forceRefresh: forceRefresh,
+      );
+
+      _cachedProjectMatches[targetProject.id] = results;
+      _matches = results;
+      if (_matches.isNotEmpty) {
+        _selectedMatch = _matches.first;
+      }
+    } catch (e) {
+      _matchingError = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+      if (kDebugMode) {
+        debugPrint('[AppStateProvider] runBuyerMatching error: $e');
+      }
+    } finally {
+      _isMatching = false;
+      notifyListeners();
+    }
+  }
+
+  void clearMatches({String? projectId}) {
+    if (projectId != null) {
+      _cachedProjectMatches.remove(projectId);
+      if (_selectedProject?.id == projectId) {
+        _matches = [];
+        _selectedMatch = null;
+      }
+    } else {
+      _matches = [];
+      _selectedMatch = null;
+    }
+    _matchingError = null;
     notifyListeners();
   }
 

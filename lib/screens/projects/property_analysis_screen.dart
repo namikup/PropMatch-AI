@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../config/theme.dart';
 import '../../models/project_model.dart';
 import '../../providers/app_state_provider.dart';
+import '../../providers/navigation_provider.dart';
 import '../../services/ai_backend_service.dart';
 
 /// Screen presenting complete AI Property Analysis & Selling Strategy (Phase 3.2).
@@ -204,6 +205,16 @@ class _PropertyAnalysisScreenState extends State<PropertyAnalysisScreen> {
       ),
       actions: [
         if (analysis != null) ...[
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppTheme.primary,
+              side: const BorderSide(color: AppTheme.primary),
+            ),
+            onPressed: () => _openAudienceDiscovery(context, project, analysis, appState),
+            icon: const Icon(Icons.person_search, size: 16),
+            label: const Text('Discover Potential Buyers'),
+          ),
+          const SizedBox(width: 8),
           TextButton.icon(
             onPressed: () => _copyFullSummary(context, analysis, project),
             icon: const Icon(Icons.copy, size: 16),
@@ -763,138 +774,190 @@ class _PropertyAnalysisScreenState extends State<PropertyAnalysisScreen> {
       title: 'C. Potential Buyer Personas',
       subtitle: '3 to 5 demographic and psychographic profiles representing marketing hypotheses.',
       icon: Icons.groups_outlined,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final isMultiColumn = constraints.maxWidth >= 720;
-          return Wrap(
-            spacing: AppTheme.spacingMd,
-            runSpacing: AppTheme.spacingMd,
-            children: personas.map((persona) {
-              final cardWidth = isMultiColumn ? (constraints.maxWidth - AppTheme.spacingMd) / 2 : constraints.maxWidth;
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isMultiColumn = constraints.maxWidth >= 720;
+              return Wrap(
+                spacing: AppTheme.spacingMd,
+                runSpacing: AppTheme.spacingMd,
+                children: personas.map((persona) {
+                  final cardWidth = isMultiColumn ? (constraints.maxWidth - AppTheme.spacingMd) / 2 : constraints.maxWidth;
 
-              return SizedBox(
-                width: cardWidth,
-                child: Container(
-                  padding: const EdgeInsets.all(AppTheme.spacingMd),
-                  decoration: BoxDecoration(
-                    color: AppTheme.surface,
-                    borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-                    border: Border.all(color: AppTheme.cardBorder),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Persona Header & Relevance Score
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  return SizedBox(
+                    width: cardWidth,
+                    child: Container(
+                      padding: const EdgeInsets.all(AppTheme.spacingMd),
+                      decoration: BoxDecoration(
+                        color: AppTheme.surface,
+                        borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                        border: Border.all(color: AppTheme.cardBorder),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: Text(
-                              persona.segmentName,
-                              style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w700,
-                                color: AppTheme.textPrimary,
+                          // Persona Header & Relevance Score
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  persona.segmentName,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppTheme.textPrimary,
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primary,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  '${persona.relevanceScore}% Fit',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+
+                          // Motivations Chips
+                          Wrap(
+                            spacing: 4,
+                            runSpacing: 4,
+                            children: persona.keyMotivations.map((m) {
+                              return Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primary.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  m,
+                                  style: const TextStyle(fontSize: 11, color: AppTheme.primary),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                          const SizedBox(height: 10),
+
+                          // Appealing Features
+                          if (persona.appealingFeatures.isNotEmpty) ...[
+                            const Text(
+                              'Appealing Features:',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.textSecondary),
+                            ),
+                            const SizedBox(height: 2),
+                            ...persona.appealingFeatures.map(
+                              (feat) => Padding(
+                                padding: const EdgeInsets.only(left: 4, bottom: 2),
+                                child: Text('• $feat', style: const TextStyle(fontSize: 12)),
                               ),
                             ),
-                          ),
+                            const SizedBox(height: 6),
+                          ],
+
+                          // Hesitations
+                          if (persona.potentialObjections.isNotEmpty) ...[
+                            const Text(
+                              'Primary Hesitation:',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.accent),
+                            ),
+                            const SizedBox(height: 2),
+                            ...persona.potentialObjections.map(
+                              (obj) => Padding(
+                                padding: const EdgeInsets.only(left: 4, bottom: 2),
+                                child: Text('• $obj', style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+
+                          // Marketing Hook Quote
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: AppTheme.primary,
-                              borderRadius: BorderRadius.circular(12),
+                              color: AppTheme.background,
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: AppTheme.cardBorder),
                             ),
                             child: Text(
-                              '${persona.relevanceScore}% Fit',
+                              'Hook: "${persona.recommendedHook}"',
                               style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
+                                fontSize: 12,
+                                fontStyle: FontStyle.italic,
+                                fontWeight: FontWeight.w500,
+                                color: AppTheme.primary,
                               ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
-
-                      // Motivations Chips
-                      Wrap(
-                        spacing: 4,
-                        runSpacing: 4,
-                        children: persona.keyMotivations.map((m) {
-                          return Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: AppTheme.primary.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              m,
-                              style: const TextStyle(fontSize: 11, color: AppTheme.primary),
-                            ),
-                          );
-                        }).toList(),
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+          const SizedBox(height: AppTheme.spacingMd),
+          Container(
+            padding: const EdgeInsets.all(AppTheme.spacingMd),
+            decoration: BoxDecoration(
+              color: AppTheme.primary.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+              border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.person_search, color: AppTheme.primary, size: 28),
+                const SizedBox(width: AppTheme.spacingMd),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Discover Actionable Buyer Audiences',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
                       ),
-                      const SizedBox(height: 10),
-
-                      // Appealing Features
-                      if (persona.appealingFeatures.isNotEmpty) ...[
-                        const Text(
-                          'Appealing Features:',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.textSecondary),
-                        ),
-                        const SizedBox(height: 2),
-                        ...persona.appealingFeatures.map(
-                          (feat) => Padding(
-                            padding: const EdgeInsets.only(left: 4, bottom: 2),
-                            child: Text('• $feat', style: const TextStyle(fontSize: 12)),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                      ],
-
-                      // Hesitations
-                      if (persona.potentialObjections.isNotEmpty) ...[
-                        const Text(
-                          'Primary Hesitation:',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.accent),
-                        ),
-                        const SizedBox(height: 2),
-                        ...persona.potentialObjections.map(
-                          (obj) => Padding(
-                            padding: const EdgeInsets.only(left: 4, bottom: 2),
-                            child: Text('• $obj', style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-
-                      // Marketing Hook Quote
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: AppTheme.background,
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: AppTheme.cardBorder),
-                        ),
-                        child: Text(
-                          'Hook: "${persona.recommendedHook}"',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontStyle: FontStyle.italic,
-                            fontWeight: FontWeight.w500,
-                            color: AppTheme.primary,
-                          ),
-                        ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Unlock deeper market demand intelligence distinguishing verified project facts from hypotheses with tailored marketing hooks.',
+                        style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                       ),
                     ],
                   ),
                 ),
-              );
-            }).toList(),
-          );
-        },
+                const SizedBox(width: AppTheme.spacingMd),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: () {
+                    final appState = context.read<AppStateProvider>();
+                    final p = widget.initialProject ?? _targetProject ?? appState.selectedProject;
+                    if (p != null) {
+                      _openAudienceDiscovery(context, p, analysis, appState);
+                    }
+                  },
+                  icon: const Icon(Icons.person_search, size: 16),
+                  label: const Text('Discover Potential Buyers'),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1315,6 +1378,25 @@ class _PropertyAnalysisScreenState extends State<PropertyAnalysisScreen> {
                   'Recommended Next Step:',
                   summary?.recommendedNextStep ?? 'Launch targeted social campaign and organize private agent briefing.',
                 ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primary,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () {
+                      final appState = context.read<AppStateProvider>();
+                      final p = widget.initialProject ?? _targetProject ?? appState.selectedProject;
+                      if (p != null) {
+                        _openAudienceDiscovery(context, p, analysis, appState);
+                      }
+                    },
+                    icon: const Icon(Icons.person_search, size: 16),
+                    label: const Text('Discover Potential Buyers for this Strategy'),
+                  ),
+                ),
               ],
             ),
           ),
@@ -1485,6 +1567,101 @@ class _PropertyAnalysisScreenState extends State<PropertyAnalysisScreen> {
     Clipboard.setData(ClipboardData(text: buffer.toString()));
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Strategic summary for ${project.name} copied to clipboard!')),
+    );
+  }
+
+  void _openAudienceDiscovery(
+    BuildContext context,
+    ProjectModel project,
+    PropertyAnalysisResult? analysis,
+    AppStateProvider appState,
+  ) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final obsController = TextEditingController();
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.person_search, color: AppTheme.primary),
+              SizedBox(width: 8),
+              Text(
+                'Discover Potential Buyers',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 480,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'AI will analyze ${project.name} along with the property intelligence to discover 3–6 potential buyer segments.',
+                  style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Local Market Observations (Optional):',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: obsController,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    hintText: 'e.g. Strong interest from Penang Island upgraders, doctors from nearby hospital, foreign tech workers...',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.warning.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: AppTheme.warning.withValues(alpha: 0.2)),
+                  ),
+                  child: const Text(
+                    'Notice: Output will be an AI-generated audience hypothesis distinguishing verified facts from assumptions. Relevance scores reflect marketing fit, not actual conversion rates.',
+                    style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                final observations = obsController.text.trim();
+                Navigator.of(ctx).pop();
+                appState.selectProject(project);
+                appState.runAudienceDiscovery(
+                  project: project,
+                  existingAnalysis: analysis,
+                  agentObservations: observations.isNotEmpty ? observations : null,
+                );
+                try {
+                  context.read<NavigationProvider>().navigateTo(NavItem.audienceDiscovery);
+                } catch (_) {
+                  Navigator.of(context).maybePop();
+                }
+              },
+              icon: const Icon(Icons.person_search, size: 16),
+              label: const Text('Discover Buyers'),
+            ),
+          ],
+        );
+      },
     );
   }
 }
