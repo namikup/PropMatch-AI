@@ -44,6 +44,25 @@ node_modules/
 functions/node_modules/
 functions/lib/
 
+# Local secrets & environment files (Never commit API keys or credentials)
+.secret.local
+functions/.secret.local
+*.secret.local
+.env
+.env.*
+!.env.example
+functions/.env
+functions/.env.*
+!functions/.secret.local.example
+
+# Firebase Emulator exports and logs
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+ui-debug.log
+emulator-data/
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile

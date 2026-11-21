@@ -1,5 +1,6 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
+import '../config/emulator_config.dart';
 import '../models/project_model.dart';
 import '../models/audience_segment_model.dart';
 import '../models/buyer_model.dart';
@@ -703,7 +704,14 @@ class CloudFunctionsAIService implements AIBackendService {
   FirebaseFunctions? get _functions {
     if (_customFunctions != null) return _customFunctions;
     try {
-      return FirebaseFunctions.instanceFor(region: 'asia-southeast1');
+      final functions = FirebaseFunctions.instanceFor(region: 'asia-southeast1');
+      if (EmulatorConfig.useEmulator) {
+        functions.useFunctionsEmulator(
+          EmulatorConfig.emulatorHost,
+          EmulatorConfig.functionsPort,
+        );
+      }
+      return functions;
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[CloudFunctionsAIService] Firebase not initialized: $e');
