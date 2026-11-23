@@ -22,6 +22,7 @@ import '../services/crm_import/import_validator.dart';
 import '../services/crm_import/duplicate_detector.dart';
 import '../services/crm_import/batch_importer.dart';
 import '../services/lead_ingestion/lead_ingestion_pipeline.dart';
+import '../services/agent_directory_service.dart';
 import '../repositories/project_repository.dart';
 import '../repositories/buyer_repository.dart';
 import '../repositories/lead_repository.dart';
@@ -664,6 +665,10 @@ class AppStateProvider extends ChangeNotifier {
             createdAt: DateTime.now(),
             updatedAt: DateTime.now(),
           );
+
+      if (_currentUserProfile != null) {
+        AgentDirectoryService.registerAgent(_currentUserProfile!);
+      }
 
       if (ownerId != _defaultOwnerId) {
         // Authenticated real agent: direct assignment, even if empty (no demo data leak!)

@@ -273,7 +273,7 @@ class _AgentLandingPageScreenState extends State<AgentLandingPageScreen> {
                                 const Icon(Icons.verified, size: 14, color: Colors.white),
                                 const SizedBox(width: 4),
                                 Text(
-                                  'Verified ${widget.agent.renNumber}',
+                                  'Verified REN ${widget.agent.renNumber.replaceFirst(RegExp(r'^REN[:\s]*', caseSensitive: false), '')}',
                                   style: const TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
@@ -291,7 +291,7 @@ class _AgentLandingPageScreenState extends State<AgentLandingPageScreen> {
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              'REN: ${widget.agent.renNumber} (Unverified)',
+                              'REN: ${widget.agent.renNumber.replaceFirst(RegExp(r'^REN[:\s]*', caseSensitive: false), '')} (Unverified)',
                               style: const TextStyle(
                                 fontSize: 11,
                                 color: Color(0xFFCBD5E1),
@@ -677,6 +677,7 @@ class _AgentLandingPageScreenState extends State<AgentLandingPageScreen> {
               children: [
                 Expanded(
                   child: DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _preferredLocation,
                     decoration: const InputDecoration(
                       labelText: 'Location',
@@ -696,6 +697,7 @@ class _AgentLandingPageScreenState extends State<AgentLandingPageScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _propertyType,
                     decoration: const InputDecoration(
                       labelText: 'Type',
@@ -740,6 +742,7 @@ class _AgentLandingPageScreenState extends State<AgentLandingPageScreen> {
               children: [
                 Expanded(
                   child: DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _purchasePurpose,
                     decoration: const InputDecoration(
                       labelText: 'Purpose',
@@ -757,6 +760,7 @@ class _AgentLandingPageScreenState extends State<AgentLandingPageScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _buyingTimeline,
                     decoration: const InputDecoration(
                       labelText: 'Timeline',

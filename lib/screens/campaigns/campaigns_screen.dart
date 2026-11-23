@@ -3,9 +3,17 @@ import 'package:provider/provider.dart';
 import '../../config/theme.dart';
 import '../../providers/app_state_provider.dart';
 import '../../providers/navigation_provider.dart';
+import 'meta_ads_intelligence_screen.dart';
 
-class CampaignsScreen extends StatelessWidget {
+class CampaignsScreen extends StatefulWidget {
   const CampaignsScreen({super.key});
+
+  @override
+  State<CampaignsScreen> createState() => _CampaignsScreenState();
+}
+
+class _CampaignsScreenState extends State<CampaignsScreen> {
+  int _selectedTab = 0; // 0 = Meta Ads Intelligence, 1 = Multi-Channel Creatives
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +34,9 @@ class CampaignsScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Multi-Channel Campaigns',
+                      _selectedTab == 0
+                          ? 'Meta Ads Intelligence'
+                          : 'Multi-Channel Campaigns',
                       style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                             fontWeight: FontWeight.w800,
                           ),
@@ -35,7 +45,9 @@ class CampaignsScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Track ad creative performance across Facebook, Instagram, TikTok and WhatsApp broadcast campaigns.',
+                      _selectedTab == 0
+                          ? 'Track Meta Ads expenditure, Instant Form leads, and correlate spend directly with qualified buyer conversions.'
+                          : 'Track ad creative performance across Facebook, Instagram, TikTok and WhatsApp broadcast campaigns.',
                       style: const TextStyle(color: AppTheme.textSecondary),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -51,7 +63,89 @@ class CampaignsScreen extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: AppTheme.spacingMd),
+
+          // Tab Selector Bar
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppTheme.cardBorder),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _tabButton(
+                  index: 0,
+                  label: 'Meta Ads Intelligence',
+                  icon: Icons.insights_outlined,
+                  activeIcon: Icons.insights,
+                ),
+                const SizedBox(width: 4),
+                _tabButton(
+                  index: 1,
+                  label: 'Multi-Channel Creatives',
+                  icon: Icons.campaign_outlined,
+                  activeIcon: Icons.campaign,
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: AppTheme.spacingLg),
+
+          // Tab Content
+          if (_selectedTab == 0)
+            MetaAdsIntelligenceScreen(ownerId: appState.currentOwnerId)
+          else
+            _buildMultiChannelView(context, appState, nav),
+        ],
+      ),
+    );
+  }
+
+  Widget _tabButton({
+    required int index,
+    required String label,
+    required IconData icon,
+    required IconData activeIcon,
+  }) {
+    final isSelected = _selectedTab == index;
+    return InkWell(
+      onTap: () => setState(() => _selectedTab = index),
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? AppTheme.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isSelected ? activeIcon : icon,
+              size: 16,
+              color: isSelected ? Colors.white : AppTheme.textSecondary,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                color: isSelected ? Colors.white : AppTheme.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMultiChannelView(BuildContext context, AppStateProvider appState, NavigationProvider nav) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
 
           // Overview Stats
           LayoutBuilder(
@@ -182,8 +276,7 @@ class CampaignsScreen extends StatelessWidget {
             ),
           ],
         ],
-      ),
-    );
+      );
   }
 
   Widget _statItem(BuildContext context, String title, String val, IconData icon, Color color) {

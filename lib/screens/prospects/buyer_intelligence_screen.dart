@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../config/theme.dart';
+import '../../config/pilot_config.dart';
 import '../../models/prospect_model.dart';
 import '../../models/prospect_consent_event_model.dart';
 import '../../models/prospect_activity_model.dart';
@@ -79,8 +80,10 @@ class _BuyerIntelligenceScreenState extends State<BuyerIntelligenceScreen> {
         appState.prospectSourceFilter != 'All' ||
         appState.prospectVerificationFilter != 'All';
 
+    final showChannelB = PilotConfig.enablePlatformLeadDistribution;
+
     return DefaultTabController(
-      length: 5,
+      length: showChannelB ? 5 : 4,
       child: Scaffold(
         backgroundColor: AppTheme.background,
         body: Column(
@@ -156,15 +159,16 @@ class _BuyerIntelligenceScreenState extends State<BuyerIntelligenceScreen> {
                           ],
                         ),
                       ),
-                      const Tab(
-                        child: Row(
-                          children: [
-                            Icon(Icons.tune_outlined, size: 18),
-                            SizedBox(width: 8),
-                            Text('Platform Lead Preferences (Channel B)'),
-                          ],
+                      if (showChannelB)
+                        const Tab(
+                          child: Row(
+                            children: [
+                              Icon(Icons.tune_outlined, size: 18),
+                              SizedBox(width: 8),
+                              Text('Platform Lead Preferences (Channel B)'),
+                            ],
+                          ),
                         ),
-                      ),
                       const Tab(
                         child: Row(
                           children: [
@@ -214,7 +218,8 @@ class _BuyerIntelligenceScreenState extends State<BuyerIntelligenceScreen> {
                   _buildAgentLandingPageTab(context, appState),
 
                   // Tab 4: Platform Lead Preferences (Channel B)
-                  _buildPlatformLeadPreferencesTab(context, appState),
+                  if (showChannelB)
+                    _buildPlatformLeadPreferencesTab(context, appState),
 
                   // Tab 5: Sources & Integrations
                   _buildSourcesAndIntegrationsTab(context, appState),

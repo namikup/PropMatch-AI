@@ -76,8 +76,31 @@ class LeadIngestionPipeline {
     List<ProjectModel> availableProjects = const [],
   }) async {
     // --------------------------------------------------------------------------
-    // STAGE 1: Source Validation & Authentication
+    // STAGE 1: Source Validation & Authentication (with Honeypot Spam Protection)
     // --------------------------------------------------------------------------
+    final honeypotVal = rawPayload['honeypot']?.toString() ?? rawPayload['website_hp']?.toString();
+    if (honeypotVal != null && honeypotVal.trim().isNotEmpty) {
+      final spamEnquiry = EnquiryModel(
+        ownerId: ownerId,
+        sourceType: sourceType,
+        sourceName: rawPayload['sourceName']?.toString() ?? 'Direct Website Form',
+        fullName: rawPayload['name']?.toString() ?? 'Automated Bot',
+        stage: 'Source Validation',
+        processingStatus: 'Rejected',
+        statusReason: 'Spam honeypot trap triggered (honeypot field was populated).',
+        consentStatus: 'No Consent',
+        contactEligibility: 'Ineligible',
+        rawMetadata: rawPayload,
+      );
+      return IngestionPipelineResult(
+        success: false,
+        enquiry: spamEnquiry,
+        currentStage: 'Source Validation',
+        status: 'Rejected',
+        errorMessage: 'Spam bot submission rejected.',
+      );
+    }
+
     final adapter = ProspectSourceRegistry.getAdapter(sourceType);
     if (adapter == null) {
       final rejectedEnquiry = EnquiryModel(
@@ -167,8 +190,12 @@ class LeadIngestionPipeline {
       utmCampaign: rawPayload['utmCampaign']?.toString() ?? initialEnquiry.utmCampaign,
       utmTerm: rawPayload['utmTerm']?.toString() ?? initialEnquiry.utmTerm,
       utmContent: rawPayload['utmContent']?.toString() ?? initialEnquiry.utmContent,
-      assignedAgentId: rawPayload['assignedAgentId']?.toString() ?? initialEnquiry.assignedAgentId,
-      routingStatus: rawPayload['routingStatus']?.toString() ?? initialEnquiry.routingStatus,
+      assignedAgentId: (sourceType == 'Direct Website' || sourceType == 'Agent Registration')
+          ? ownerId
+          : (rawPayload['assignedAgentId']?.toString() ?? initialEnquiry.assignedAgentId),
+      routingStatus: (sourceType == 'Direct Website' || sourceType == 'Agent Registration')
+          ? 'Direct'
+          : (rawPayload['routingStatus']?.toString() ?? initialEnquiry.routingStatus),
       routingReason: rawPayload['routingReason']?.toString() ?? initialEnquiry.routingReason,
       agentSuitabilityScore: (rawPayload['agentSuitabilityScore'] as num?)?.toDouble() ?? initialEnquiry.agentSuitabilityScore,
       routingTimestamp: rawPayload['routingTimestamp'] != null
@@ -176,7 +203,9 @@ class LeadIngestionPipeline {
           : initialEnquiry.routingTimestamp,
       enquiryConsentGranted: rawPayload['enquiryConsentGranted'] as bool? ?? true,
       marketingConsentGranted: rawPayload['marketingConsentGranted'] as bool? ?? false,
-      acquisitionChannel: rawPayload['acquisitionChannel']?.toString() ?? initialEnquiry.acquisitionChannel,
+      acquisitionChannel: (sourceType == 'Direct Website' || sourceType == 'Agent Registration')
+          ? 'Channel A: Agent-Generated'
+          : (rawPayload['acquisitionChannel']?.toString() ?? initialEnquiry.acquisitionChannel),
     );
 
     // --------------------------------------------------------------------------
@@ -323,7 +352,11 @@ class LeadIngestionPipeline {
       verificationStatus: normPhone.isNotEmpty ? 'Phone Verified' : 'Unverified',
       contactEligibility: contactEligibility,
       consentedPurposes: contactEligibility == 'Eligible'
-          ? ['Direct Inquiry Response', 'Property Recommendations']
+          ? [
+              'Direct Inquiry Response',
+              'Property Recommendations',
+              if (consentValidatedEnquiry.marketingConsentGranted) 'Marketing & Promotion',
+            ]
           : [],
       consentedChannels: normPhone.isNotEmpty ? ['WhatsApp', 'Phone'] : ['Email'],
       primarySource: sourceType,

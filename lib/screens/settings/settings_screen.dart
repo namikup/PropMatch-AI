@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../config/theme.dart';
 import '../../config/constants.dart';
+import '../../config/pilot_config.dart';
 import '../../providers/app_state_provider.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -69,6 +70,72 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: AppTheme.spacingLg),
+
+          // Single-Agent Private Pilot Status Card
+          if (PilotConfig.isSingleAgentPilotMode) ...[
+            Card(
+              color: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                side: BorderSide(color: AppTheme.primary.withValues(alpha: 0.3)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(AppTheme.spacingXl),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.verified_user_outlined, color: AppTheme.primary, size: 22),
+                        ),
+                        const SizedBox(width: AppTheme.spacingMd),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Single-Agent Private Pilot Status',
+                                style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                              ),
+                              const Text(
+                                'PropMatch AI is operating in dedicated Single-Agent Private Pilot mode.',
+                                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppTheme.secondary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppTheme.secondary.withValues(alpha: 0.3)),
+                          ),
+                          child: const Text('PILOT ACTIVE', style: TextStyle(color: AppTheme.secondary, fontWeight: FontWeight.bold, fontSize: 11)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppTheme.spacingMd),
+                    const Divider(height: 1),
+                    const SizedBox(height: AppTheme.spacingMd),
+                    _infoRow('Pilot Operating Mode', 'Single-Agent Exclusive'),
+                    _infoRow('Designated Agent', '${appState.currentUserProfile?.fullName ?? "Malik Tan / Alex Tan"} (${appState.currentOwnerId})'),
+                    _infoRow('Data Ownership', '100% Agent-Owned (Multi-tenant ownerId enforced)'),
+                    _infoRow('Multi-Agent Marketplace', 'Disabled (No public agent directory or comparison)'),
+                    _infoRow('Lead Ingestion', 'Direct Channel A (Personal landing page & campaigns)'),
+                    _infoRow('Registration Access', 'Invite-code protected (Unrestricted registration closed)'),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: AppTheme.spacingLg),
+          ],
 
           // Demo Data Isolation Controls
           Card(

@@ -5,6 +5,7 @@ import 'partner_agency_adapter.dart';
 import 'developer_adapter.dart';
 import 'crm_import_adapter.dart';
 import 'direct_website_adapter.dart';
+import 'meta_lead_ads_adapter.dart';
 
 /// Central registry managing all prospect source adapters and default channel configurations.
 class ProspectSourceRegistry {
@@ -14,6 +15,7 @@ class ProspectSourceRegistry {
     'Developer': DeveloperAdapter(),
     'CRM Import': CRMImportAdapter(),
     'Direct Website': DirectWebsiteAdapter(),
+    'Facebook Lead Ads': MetaLeadAdsAdapter(),
   };
 
   /// Returns registered adapter for a given source type.

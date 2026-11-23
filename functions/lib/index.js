@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.distributePlatformLead = exports.updateIncomingEnquiryStatus = exports.getIncomingEnquiries = exports.ingestLeadEnquiry = exports.importProspectsBatch = exports.getAudienceSegments = exports.getPropertyAnalysis = exports.getAIUsageStats = exports.generateMarketingContent = exports.getMatches = exports.matchBuyers = exports.discoverAudienceSegments = exports.analyzeProperty = exports.geminiApiKey = void 0;
+exports.metaWebhookHandler = exports.generateMetaCampaignAIIntelligence = exports.getMetaCampaigns = exports.syncMetaCampaigns = exports.disconnectMetaAccount = exports.connectMetaAccount = exports.getMetaConnectionStatus = exports.distributePlatformLead = exports.updateIncomingEnquiryStatus = exports.getIncomingEnquiries = exports.ingestLeadEnquiry = exports.importProspectsBatch = exports.getAudienceSegments = exports.getPropertyAnalysis = exports.getAIUsageStats = exports.generateMarketingContent = exports.getMatches = exports.matchBuyers = exports.discoverAudienceSegments = exports.analyzeProperty = exports.metaWebhookVerifyToken = exports.metaAppSecret = exports.geminiApiKey = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
 const ai_request_validator_1 = require("./validators/ai_request_validator");
@@ -13,11 +13,14 @@ const firebase_config_1 = require("./config/firebase.config");
 const gemini_config_1 = require("./config/gemini.config");
 const prospect_import_service_1 = require("./services/prospect_import_service");
 const lead_ingestion_service_1 = require("./services/lead_ingestion_service");
+const meta_ads_service_1 = require("./services/meta_ads_service");
 /**
- * Secret Manager binding for Gemini Developer API.
+ * Secret Manager binding for Gemini Developer API and Meta Advertising Integration.
  * Securely injected by Google Cloud Secret Manager at function execution time.
  */
 exports.geminiApiKey = (0, params_1.defineSecret)("GEMINI_API_KEY");
+exports.metaAppSecret = (0, params_1.defineSecret)("META_APP_SECRET");
+exports.metaWebhookVerifyToken = (0, params_1.defineSecret)("META_WEBHOOK_VERIFY_TOKEN");
 /**
  * Deployment options for Firebase Cloud Functions v2.
  * Region: asia-southeast1 (Singapore — optimized for Malaysian latency).
@@ -748,6 +751,191 @@ exports.distributePlatformLead = (0, https_1.onCall)(callOptions, async (request
         if (err instanceof https_1.HttpsError)
             throw err;
         throw error_handler_1.ErrorHandler.handle(err, "distributePlatformLead");
+    }
+});
+function getMetaAppSecret() {
+    try {
+        return exports.metaAppSecret.value() || process.env.META_APP_SECRET || "propmatch_meta_secret_2026";
+    }
+    catch (_) {
+        return process.env.META_APP_SECRET || "propmatch_meta_secret_2026";
+    }
+}
+function getMetaVerifyToken() {
+    try {
+        return exports.metaWebhookVerifyToken.value() || process.env.META_WEBHOOK_VERIFY_TOKEN || "propmatch_verify_token_2026";
+    }
+    catch (_) {
+        return process.env.META_WEBHOOK_VERIFY_TOKEN || "propmatch_verify_token_2026";
+    }
+}
+/**
+ * Callable Function: Get Meta Connection Status (Phase 5.1 Meta Ads Intelligence)
+ */
+exports.getMetaConnectionStatus = (0, https_1.onCall)(callOptions, async (request) => {
+    const callerUid = ai_request_validator_1.AIRequestValidator.validateAuth(request.auth?.uid);
+    try {
+        const data = await meta_ads_service_1.MetaAdsService.getConnectionStatus(callerUid);
+        return { success: true, data };
+    }
+    catch (err) {
+        if (err instanceof https_1.HttpsError)
+            throw err;
+        throw error_handler_1.ErrorHandler.handle(err, "getMetaConnectionStatus", { ownerId: callerUid });
+    }
+});
+/**
+ * Callable Function: Connect Meta Account (Phase 5.1 Meta Ads Intelligence)
+ */
+exports.connectMetaAccount = (0, https_1.onCall)(callOptions, async (request) => {
+    const callerUid = ai_request_validator_1.AIRequestValidator.validateAuth(request.auth?.uid);
+    const params = request.data;
+    if (!params || typeof params !== "object") {
+        throw new https_1.HttpsError("invalid-argument", "Missing connection parameters.");
+    }
+    try {
+        const data = await meta_ads_service_1.MetaAdsService.connectAccount(callerUid, params);
+        return { success: true, data };
+    }
+    catch (err) {
+        if (err instanceof https_1.HttpsError)
+            throw err;
+        throw error_handler_1.ErrorHandler.handle(err, "connectMetaAccount", { ownerId: callerUid });
+    }
+});
+/**
+ * Callable Function: Disconnect Meta Account (Phase 5.1 Meta Ads Intelligence)
+ */
+exports.disconnectMetaAccount = (0, https_1.onCall)(callOptions, async (request) => {
+    const callerUid = ai_request_validator_1.AIRequestValidator.validateAuth(request.auth?.uid);
+    try {
+        await meta_ads_service_1.MetaAdsService.disconnectAccount(callerUid);
+        return { success: true };
+    }
+    catch (err) {
+        if (err instanceof https_1.HttpsError)
+            throw err;
+        throw error_handler_1.ErrorHandler.handle(err, "disconnectMetaAccount", { ownerId: callerUid });
+    }
+});
+/**
+ * Callable Function: Sync Meta Campaigns (Phase 5.1 Meta Ads Intelligence)
+ */
+exports.syncMetaCampaigns = (0, https_1.onCall)(callOptions, async (request) => {
+    const callerUid = ai_request_validator_1.AIRequestValidator.validateAuth(request.auth?.uid);
+    try {
+        const data = await meta_ads_service_1.MetaAdsService.syncCampaigns(callerUid, request.data?.mockCampaigns);
+        return { success: true, data };
+    }
+    catch (err) {
+        if (err instanceof https_1.HttpsError)
+            throw err;
+        throw error_handler_1.ErrorHandler.handle(err, "syncMetaCampaigns", { ownerId: callerUid });
+    }
+});
+/**
+ * Callable Function: Get Meta Campaigns & Buyer Quality (Phase 5.1 Meta Ads Intelligence)
+ */
+exports.getMetaCampaigns = (0, https_1.onCall)(callOptions, async (request) => {
+    const callerUid = ai_request_validator_1.AIRequestValidator.validateAuth(request.auth?.uid);
+    try {
+        const data = await meta_ads_service_1.MetaAdsService.getCampaigns(callerUid);
+        return { success: true, data };
+    }
+    catch (err) {
+        if (err instanceof https_1.HttpsError)
+            throw err;
+        throw error_handler_1.ErrorHandler.handle(err, "getMetaCampaigns", { ownerId: callerUid });
+    }
+});
+/**
+ * Callable Function: Generate Meta Campaign AI Intelligence (Phase 5.1 Meta Ads Intelligence)
+ */
+exports.generateMetaCampaignAIIntelligence = (0, https_1.onCall)(callOptions, async (request) => {
+    const callerUid = ai_request_validator_1.AIRequestValidator.validateAuth(request.auth?.uid);
+    try {
+        const data = await meta_ads_service_1.MetaAdsService.generateAIIntelligence(callerUid);
+        return { success: true, data };
+    }
+    catch (err) {
+        if (err instanceof https_1.HttpsError)
+            throw err;
+        throw error_handler_1.ErrorHandler.handle(err, "generateMetaCampaignAIIntelligence", { ownerId: callerUid });
+    }
+});
+/**
+ * HTTP Webhook Handler: Meta Webhook for Lead Ads (Phase 5.1 Meta Ads Intelligence)
+ * Supports GET subscription verification and POST leadgen event reception with HMAC verification.
+ */
+exports.metaWebhookHandler = (0, https_1.onRequest)({ region: "asia-southeast1", cors: true }, async (req, res) => {
+    // 1. Subscription Verification Handshake (GET)
+    if (req.method === "GET") {
+        const mode = req.query["hub.mode"];
+        const token = req.query["hub.verify_token"];
+        const challenge = req.query["hub.challenge"];
+        const expectedToken = getMetaVerifyToken();
+        if (mode === "subscribe" && token === expectedToken) {
+            logger_1.Logger.info("Meta Webhook verification handshake successful");
+            res.status(200).send(challenge);
+            return;
+        }
+        else {
+            logger_1.Logger.warn("Meta Webhook verification failed: invalid token", { receivedToken: token });
+            res.status(403).send("Forbidden: Invalid verification token");
+            return;
+        }
+    }
+    // 2. Real-Time Event Notification (POST)
+    if (req.method === "POST") {
+        const signature = req.headers["x-hub-signature-256"];
+        const appSecret = getMetaAppSecret();
+        const rawBody = typeof req.rawBody === "object" ? req.rawBody : Buffer.from(JSON.stringify(req.body));
+        const isValidSignature = meta_ads_service_1.MetaAdsService.verifyWebhookSignature(rawBody, signature, appSecret);
+        if (!isValidSignature && process.env.NODE_ENV !== "test") {
+            logger_1.Logger.warn("Meta Webhook signature verification failed");
+            res.status(401).send("Unauthorized: Invalid signature");
+            return;
+        }
+        try {
+            const body = req.body;
+            if (body.object === "page") {
+                for (const entry of body.entry || []) {
+                    const pageId = entry.id;
+                    for (const change of entry.changes || []) {
+                        if (change.field === "leadgen") {
+                            const leadData = change.value;
+                            const leadgenId = leadData.leadgen_id;
+                            const formId = leadData.form_id;
+                            const adId = leadData.ad_id;
+                            const campaignId = leadData.campaign_id;
+                            const createdTime = leadData.created_time || Math.floor(Date.now() / 1000);
+                            // Look up which agent owns this Facebook Page
+                            const pageOwnerSnap = await firebase_config_1.collections.metaConnections
+                                .where("facebookPageId", "==", pageId)
+                                .limit(1)
+                                .get();
+                            const ownerId = pageOwnerSnap.empty
+                                ? "pilot-agent-malik-001" // Default to designated pilot agent in pilot mode
+                                : pageOwnerSnap.docs[0].id;
+                            await meta_ads_service_1.MetaAdsService.ingestMetaLead(ownerId, {
+                                leadgenId,
+                                formId,
+                                pageId,
+                                adId,
+                                campaignId,
+                                createdTime,
+                                fieldData: leadData.field_data || []
+                            });
+                        }
+                    }
+                }
+            }
+            res.status(200).send("EVENT_RECEIVED");
+        }
+        catch (err) {
+            logger_1.Logger.error("Error processing Meta webhook event", err);
+            res.status(500).send("Internal Server Error");
+        }
     }
 });
 //# sourceMappingURL=index.js.map

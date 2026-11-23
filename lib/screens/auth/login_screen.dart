@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../config/theme.dart';
 import '../../config/constants.dart';
+import '../../config/pilot_config.dart';
 import '../../providers/app_state_provider.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -32,6 +33,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   final _regPhoneController = TextEditingController();
   final _regAgencyController = TextEditingController();
   final _regRenController = TextEditingController();
+  final _regInviteCodeController = TextEditingController();
   String _regRegion = 'Penang & Northern Region';
   bool _isRegisterLoading = false;
   bool _obscureRegPassword = true;
@@ -64,6 +66,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     _regPhoneController.dispose();
     _regAgencyController.dispose();
     _regRenController.dispose();
+    _regInviteCodeController.dispose();
     super.dispose();
   }
 
@@ -104,6 +107,20 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       final user = await appState.authRepository.signInWithEmail(email, password);
 
       if (user != null) {
+        // Enforce Single-Agent Private Pilot Access Control
+        if (PilotConfig.isSingleAgentPilotMode &&
+            !PilotConfig.isUserAuthorized(user.email, user.uid)) {
+          await appState.authRepository.signOut();
+          if (mounted) {
+            setState(() {
+              _loginErrorMessage =
+                  'Access Restricted: PropMatch AI is currently operating in Single-Agent Private Pilot mode. '
+                  'Internal dashboard access is reserved strictly for the designated pilot agent and system administrators.';
+            });
+          }
+          return;
+        }
+
         if (mounted) {
           widget.onLoginSuccess();
         }
@@ -130,6 +147,20 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   Future<void> _handleRegister() async {
     if (!_registerFormKey.currentState!.validate()) {
       return;
+    }
+
+    // Enforce Pilot Invite Code if unrestricted registration is disabled
+    if (PilotConfig.isSingleAgentPilotMode &&
+        !PilotConfig.allowUnrestrictedPublicRegistration) {
+      final inviteCode = _regInviteCodeController.text.trim();
+      if (inviteCode != PilotConfig.pilotRegistrationInviteCode) {
+        setState(() {
+          _registerErrorMessage =
+              'Registration Restricted: Unrestricted public registration is disabled during this private pilot. '
+              'Please provide a valid pilot invitation code to register.';
+        });
+        return;
+      }
     }
 
     setState(() {
@@ -718,6 +749,33 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 : const Text('Sign In to SaaS Platform'),
           ),
         ),
+
+        // Single-Agent Pilot Direct Public Landing Link
+        if (PilotConfig.isSingleAgentPilotMode) ...[
+          const SizedBox(height: AppTheme.spacingLg),
+          const Divider(height: 1),
+          const SizedBox(height: AppTheme.spacingMd),
+          OutlinedButton.icon(
+            onPressed: () {
+              Navigator.of(context).pushNamed(
+                '/agent/${PilotConfig.defaultPilotAgentSlug}',
+              );
+            },
+            icon: const Icon(Icons.public, size: 18),
+            label: const Text('Public Visitor or Buyer? View Featured Properties'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              foregroundColor: AppTheme.primary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Center(
+            child: Text(
+              'No account needed to browse properties or submit an enquiry.',
+              style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -884,15 +942,41 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           ),
           const SizedBox(height: AppTheme.spacingMd),
 
-          // Agency Name
-          TextFormField(
-            controller: _regAgencyController,
-            decoration: const InputDecoration(
-              labelText: 'Agency Name *',
-              hintText: 'e.g. IQI Global / PropNex Malaysia',
-              prefixIcon: Icon(Icons.business_outlined),
-            ),
-            validator: (v) => v == null || v.trim().isEmpty ? 'Agency name is required' : null,
+          // Agency Name & Pilot Invite Code Row
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: _regAgencyController,
+                  decoration: const InputDecoration(
+                    labelText: 'Agency Name *',
+                    hintText: 'e.g. IQI Global',
+                    prefixIcon: Icon(Icons.business_outlined),
+                  ),
+                  validator: (v) => v == null || v.trim().isEmpty ? 'Agency name is required' : null,
+                ),
+              ),
+              if (PilotConfig.isSingleAgentPilotMode) ...[
+                const SizedBox(width: AppTheme.spacingMd),
+                Expanded(
+                  child: TextFormField(
+                    controller: _regInviteCodeController,
+                    decoration: const InputDecoration(
+                      labelText: 'Pilot Invite Code *',
+                      hintText: 'e.g. PILOT-MY-2026',
+                      prefixIcon: Icon(Icons.vpn_key_outlined),
+                    ),
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) return 'Code is required';
+                      if (v.trim() != PilotConfig.pilotRegistrationInviteCode) {
+                        return 'Invalid pilot code';
+                      }
+                      return null;
+                    },
+                  ),
+                ),
+              ],
+            ],
           ),
           const SizedBox(height: AppTheme.spacingMd),
 

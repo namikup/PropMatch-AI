@@ -124,7 +124,8 @@ export class LeadIngestionService {
       "Partner Agency",
       "Developer",
       "Direct Website",
-      "CRM Import"
+      "CRM Import",
+      "Facebook Lead Ads"
     ]);
 
     if (!input.sourceType || !validSources.has(input.sourceType)) {
@@ -391,7 +392,14 @@ export class LeadIngestionService {
       confidenceScore: contactEligibility === "Eligible" ? 85.0 : 70.0,
       notes: input.notes || "",
       isDemo: Boolean(input.isDemo),
-      tags: ["Incoming Lead", input.sourceType],
+      tags: [
+        "Incoming Lead",
+        input.sourceType,
+        ...(input.campaignId ? [`Campaign: ${input.campaignId}`] : []),
+        ...(input.acquisitionChannel === "Channel A: Agent-Generated" || input.sourceType === "Direct Website"
+          ? ["Channel A: Personal Landing Page"]
+          : ["Channel B: Platform Distribution"])
+      ],
       createdAt: receivedAt,
       updatedAt: receivedAt
     };
@@ -513,8 +521,14 @@ export class LeadIngestionService {
       utmCampaign: input.utmCampaign || null,
       utmTerm: input.utmTerm || null,
       utmContent: input.utmContent || null,
-      assignedAgentId: input.assignedAgentId || callerUid,
-      routingStatus: input.routingStatus || "Direct",
+      assignedAgentId:
+        input.sourceType === "Direct Website"
+          ? callerUid
+          : (input.assignedAgentId || callerUid),
+      routingStatus:
+        input.sourceType === "Direct Website"
+          ? "Direct"
+          : (input.routingStatus || "Direct"),
       routingReason: input.routingReason || null,
       agentSuitabilityScore: input.agentSuitabilityScore || null,
       routingTimestamp: input.routingTimestamp || receivedAt,

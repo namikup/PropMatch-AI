@@ -117,7 +117,7 @@ export class LeadDistributionService {
       return {
         isAssigned: false,
         routingStatus: "Unassigned Queue",
-        rationale: `No eligible agent found matching location (${loc}, ${state}) and property type (${type}).`,
+        rationale: `Enquiry routed to Unassigned Queue: No eligible agent found matching location (${loc}, ${state}) and property type (${type}).`,
         factors: ["Enquiry retained in unassigned queue awaiting manual assignment or expanded agent criteria."],
         routingTimestamp: new Date().toISOString()
       };

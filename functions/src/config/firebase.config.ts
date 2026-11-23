@@ -29,5 +29,10 @@ export const collections = {
   prospectMatches: db.collection("prospect_matches"),
   prospectAuditLogs: db.collection("prospect_audit_logs"),
   incomingEnquiries: db.collection("incoming_enquiries"),
-  agentPreferences: db.collection("agent_preferences")
+  agentPreferences: db.collection("agent_preferences"),
+  metaConnections: db.collection("meta_connections"),
+  metaCampaigns: db.collection("meta_campaigns"),
+  metaIngestedLeads: db.collection("meta_ingested_leads"),
+  metaSyncLogs: db.collection("meta_sync_logs"),
+  privateMetaCredentials: db.collection("_private_meta_credentials")
 };

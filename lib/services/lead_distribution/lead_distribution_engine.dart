@@ -50,6 +50,89 @@ class DistributionRoutingDecision {
 /// Strictly rejects hidden pay-to-win rankings. If no agent meets minimum criteria,
 /// routes enquiry safely to an Unassigned Queue.
 class LeadDistributionEngine {
+  /// Evaluates an individual candidate agent's suitability for an enquiry.
+  static AgentRoutingMatch evaluateSuitability({
+    required Map<String, dynamic> rawEnquiry,
+    required AgentPreferencesModel preferences,
+    UserModel? agentProfile,
+  }) {
+    final enquiryLoc = (rawEnquiry['location'] ?? rawEnquiry['preferredLocation'] ?? '').toString().toLowerCase().trim();
+    final enquiryState = (rawEnquiry['state'] ?? rawEnquiry['preferredState'] ?? '').toString().toLowerCase().trim();
+    final enquiryType = (rawEnquiry['propertyType'] ?? '').toString().toLowerCase().trim();
+    final budgetMin = (rawEnquiry['budgetMin'] as num?)?.toDouble() ?? 400000.0;
+    final budgetMax = (rawEnquiry['budgetMax'] as num?)?.toDouble() ?? 700000.0;
+
+    double score = 0.0;
+    final factors = <String>[];
+    final penalties = <String>[];
+
+    // 1. Location Suitability (40 pts max)
+    bool locationMatched = false;
+    for (final loc in preferences.preferredLocations) {
+      final l = loc.toLowerCase().trim();
+      if (enquiryLoc.contains(l) || l.contains(enquiryLoc)) {
+        score += 40.0;
+        locationMatched = true;
+        factors.add('Direct area specialization: $loc matches enquiry location ($enquiryLoc).');
+        break;
+      } else if (enquiryState.contains(l) || l.contains(enquiryState)) {
+        score += 25.0;
+        locationMatched = true;
+        factors.add('State territory match: $loc covers state ($enquiryState).');
+        break;
+      }
+    }
+
+    if (!locationMatched) {
+      penalties.add('Location outside agent focus territory.');
+    }
+
+    // 2. Property Type Compatibility (30 pts max)
+    bool typeMatched = false;
+    for (final pt in preferences.preferredPropertyTypes) {
+      final t = pt.toLowerCase().trim();
+      if (enquiryType.contains(t) || t.contains(enquiryType)) {
+        score += 30.0;
+        typeMatched = true;
+        factors.add('Property category match: $pt.');
+        break;
+      }
+    }
+    if (!typeMatched) {
+      if (enquiryType.contains('condo') || enquiryType.contains('residence')) {
+        score += 15.0;
+        factors.add('High-rise residential category overlap.');
+      } else {
+        penalties.add('Property type divergence ($enquiryType).');
+      }
+    }
+
+    // 3. Price Range & Budget Overlap (20 pts max)
+    final maxMin = budgetMin > preferences.priceRangeMin ? budgetMin : preferences.priceRangeMin;
+    final minMax = budgetMax < preferences.priceRangeMax ? budgetMax : preferences.priceRangeMax;
+    if (maxMin <= minMax) {
+      score += 20.0;
+      factors.add('Budget compatibility: RM${budgetMin.toInt()}–${budgetMax.toInt()} overlaps agent focus.');
+    } else {
+      score += 5.0;
+      penalties.add('Budget exceeds agent maximum focus.');
+    }
+
+    // 4. Capacity & Fair Rotation Bonus (10 pts max)
+    final loadRatio = preferences.leadsReceivedThisMonth / (preferences.monthlyLeadQuota > 0 ? preferences.monthlyLeadQuota : 1);
+    final rotationBonus = ((1.0 - loadRatio) * 10.0).clamp(0.0, 10.0);
+    score += rotationBonus;
+    factors.add('Capacity rotation index: ${rotationBonus.toStringAsFixed(1)} pts.');
+
+    return AgentRoutingMatch(
+      preferences: preferences,
+      agentProfile: agentProfile,
+      suitabilityScore: score.clamp(0.0, 100.0),
+      matchFactors: factors,
+      penaltyFactors: penalties,
+    );
+  }
+
   /// Evaluates all participating agents and determines single recipient or unassigned queue.
   static DistributionRoutingDecision routeEnquiry({
     required Map<String, dynamic> rawEnquiry,
@@ -60,8 +143,6 @@ class LeadDistributionEngine {
     final enquiryState = (rawEnquiry['state'] ?? rawEnquiry['preferredState'] ?? '').toString().toLowerCase().trim();
     final enquiryType = (rawEnquiry['propertyType'] ?? '').toString().toLowerCase().trim();
     final enquirySource = (rawEnquiry['sourceType'] ?? '').toString().trim();
-    final budgetMin = (rawEnquiry['budgetMin'] as num?)?.toDouble() ?? 400000.0;
-    final budgetMax = (rawEnquiry['budgetMax'] as num?)?.toDouble() ?? 700000.0;
 
     // Filter eligible active agents
     final eligibleMatches = <AgentRoutingMatch>[];
@@ -82,81 +163,19 @@ class LeadDistributionEngine {
         continue;
       }
 
-      // Calculate transparent suitability score (0 - 100)
-      double score = 0.0;
-      final factors = <String>[];
-      final penalties = <String>[];
+      final match = evaluateSuitability(
+        rawEnquiry: rawEnquiry,
+        preferences: pref,
+        agentProfile: agentProfiles[pref.agentId],
+      );
 
-      // 1. Location Suitability (40 pts max)
-      bool locationMatched = false;
-      for (final loc in pref.preferredLocations) {
-        final l = loc.toLowerCase().trim();
-        if (enquiryLoc.contains(l) || l.contains(enquiryLoc)) {
-          score += 40.0;
-          locationMatched = true;
-          factors.add('Direct area specialization: $loc matches enquiry location ($enquiryLoc).');
-          break;
-        } else if (enquiryState.contains(l) || l.contains(enquiryState)) {
-          score += 25.0;
-          locationMatched = true;
-          factors.add('State territory match: $loc covers state ($enquiryState).');
-          break;
-        }
+      // Hard filter: location must match
+      if (match.penaltyFactors.contains('Location outside agent focus territory.')) {
+        continue;
       }
 
-      if (!locationMatched) {
-        penalties.add('Location outside agent focus territory.');
-        continue; // Location is a mandatory hard filter
-      }
-
-      // 2. Property Type Compatibility (30 pts max)
-      bool typeMatched = false;
-      for (final pt in pref.preferredPropertyTypes) {
-        final t = pt.toLowerCase().trim();
-        if (enquiryType.contains(t) || t.contains(enquiryType)) {
-          score += 30.0;
-          typeMatched = true;
-          factors.add('Property category match: $pt.');
-          break;
-        }
-      }
-      if (!typeMatched) {
-        // Partial high-rise / landed match
-        if (enquiryType.contains('condo') || enquiryType.contains('residence')) {
-          score += 15.0;
-          factors.add('High-rise residential category overlap.');
-        } else {
-          penalties.add('Property type divergence ($enquiryType).');
-        }
-      }
-
-      // 3. Price Range & Budget Overlap (20 pts max)
-      // Check interval overlap [pref.priceRangeMin, pref.priceRangeMax] and [budgetMin, budgetMax]
-      final maxMin = budgetMin > pref.priceRangeMin ? budgetMin : pref.priceRangeMin;
-      final minMax = budgetMax < pref.priceRangeMax ? budgetMax : pref.priceRangeMax;
-      if (maxMin <= minMax) {
-        score += 20.0;
-        factors.add('Budget compatibility: RM${budgetMin.toInt()}–${budgetMax.toInt()} overlaps agent focus RM${pref.priceRangeMin.toInt()}–${pref.priceRangeMax.toInt()}.');
-      } else {
-        score += 5.0;
-        penalties.add('Budget slightly outside core price bracket.');
-      }
-
-      // 4. Capacity & Fair Rotation Bonus (10 pts max)
-      final loadRatio = pref.leadsReceivedThisMonth / (pref.monthlyLeadQuota > 0 ? pref.monthlyLeadQuota : 1);
-      final rotationBonus = ((1.0 - loadRatio) * 10.0).clamp(0.0, 10.0);
-      score += rotationBonus;
-      factors.add('Capacity rotation index: ${rotationBonus.toStringAsFixed(1)} pts.');
-
-      final clampedScore = score.clamp(0.0, 100.0);
-      if (clampedScore >= 50.0) {
-        eligibleMatches.add(AgentRoutingMatch(
-          preferences: pref,
-          agentProfile: agentProfiles[pref.agentId],
-          suitabilityScore: clampedScore,
-          matchFactors: factors,
-          penaltyFactors: penalties,
-        ));
+      if (match.suitabilityScore >= 50.0) {
+        eligibleMatches.add(match);
       }
     }
 
@@ -165,7 +184,7 @@ class LeadDistributionEngine {
         isAssigned: false,
         assignedAgentId: null,
         routingStatus: 'Unassigned Queue',
-        rationale: 'No eligible agent found matching location ($enquiryLoc, $enquiryState), property type ($enquiryType), or active availability.',
+        rationale: 'Enquiry routed to Unassigned Queue: No eligible agent found matching location ($enquiryLoc, $enquiryState), property type ($enquiryType), or active availability.',
         factors: ['Enquiry retained in Unassigned Queue awaiting manual re-routing or expanded criteria.'],
       );
     }

@@ -18,6 +18,10 @@ import 'screens/campaigns/campaigns_screen.dart';
 import 'screens/followups/followups_screen.dart';
 import 'screens/analytics/analytics_screen.dart';
 import 'screens/settings/settings_screen.dart';
+import 'screens/landing/agent_landing_page_screen.dart';
+import 'screens/landing/agent_not_found_screen.dart';
+import 'services/agent_directory_service.dart';
+import 'config/pilot_config.dart';
 
 class PropMatchApp extends StatelessWidget {
   final bool isFirebaseConnected;
@@ -39,7 +43,67 @@ class PropMatchApp extends StatelessWidget {
         title: 'PropMatch AI — Malaysian Property Lead Discovery & Matching',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
-        home: const AppEntry(),
+        onGenerateRoute: (settings) {
+          final uri = Uri.parse(settings.name ?? '/');
+          final pathSegments = uri.pathSegments;
+
+          // Check if accessing public agent landing page route: /agent/:slugOrId
+          if (pathSegments.isNotEmpty && pathSegments.first == 'agent') {
+            final slugOrId = pathSegments.length > 1 ? pathSegments[1] : '';
+            final queryParams = uri.queryParameters;
+
+            return MaterialPageRoute(
+              settings: settings,
+              builder: (context) {
+                final appState = context.watch<AppStateProvider>();
+                final agent = AgentDirectoryService.findAgent(slugOrId) ??
+                    (appState.currentUserProfile?.landingPageSlug == slugOrId ||
+                            appState.currentUserProfile?.ownerId == slugOrId
+                        ? appState.currentUserProfile
+                        : null) ??
+                    (PilotConfig.isSingleAgentPilotMode && slugOrId.isEmpty
+                        ? AgentDirectoryService.getDesignatedPilotAgent()
+                        : null);
+
+                if (agent == null) {
+                  return AgentNotFoundScreen(
+                    requestedSlug: slugOrId,
+                    onReturnHome: () {
+                      Navigator.of(context).pushReplacementNamed('/');
+                    },
+                  );
+                }
+
+                final featuredProjects =
+                    AgentDirectoryService.getFeaturedProjectsForAgent(
+                  agent,
+                  availableProjects: appState.projects,
+                );
+
+                return AgentLandingPageScreen(
+                  agent: agent,
+                  featuredProjects: featuredProjects.isNotEmpty
+                      ? featuredProjects
+                      : appState.projects,
+                  campaignId: queryParams['campaign_id'] ?? queryParams['campaignId'],
+                  utmSource: queryParams['utm_source'] ?? queryParams['utmSource'],
+                  utmMedium: queryParams['utm_medium'] ?? queryParams['utmMedium'],
+                  utmCampaign: queryParams['utm_campaign'] ?? queryParams['utmCampaign'],
+                  referralSource: queryParams['ref'] ?? queryParams['referral'],
+                  onBackToApp: () {
+                    Navigator.of(context).pushReplacementNamed('/');
+                  },
+                );
+              },
+            );
+          }
+
+          // Default entry point for authenticated app
+          return MaterialPageRoute(
+            settings: settings,
+            builder: (_) => const AppEntry(),
+          );
+        },
       ),
     );
   }

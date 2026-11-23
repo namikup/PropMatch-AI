@@ -62,6 +62,11 @@ exports.collections = {
     prospectMatches: exports.db.collection("prospect_matches"),
     prospectAuditLogs: exports.db.collection("prospect_audit_logs"),
     incomingEnquiries: exports.db.collection("incoming_enquiries"),
-    agentPreferences: exports.db.collection("agent_preferences")
+    agentPreferences: exports.db.collection("agent_preferences"),
+    metaConnections: exports.db.collection("meta_connections"),
+    metaCampaigns: exports.db.collection("meta_campaigns"),
+    metaIngestedLeads: exports.db.collection("meta_ingested_leads"),
+    metaSyncLogs: exports.db.collection("meta_sync_logs"),
+    privateMetaCredentials: exports.db.collection("_private_meta_credentials")
 };
 //# sourceMappingURL=firebase.config.js.map
