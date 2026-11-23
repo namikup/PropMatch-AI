@@ -4,6 +4,7 @@ import 'property_portal_adapter.dart';
 import 'partner_agency_adapter.dart';
 import 'developer_adapter.dart';
 import 'crm_import_adapter.dart';
+import 'direct_website_adapter.dart';
 
 /// Central registry managing all prospect source adapters and default channel configurations.
 class ProspectSourceRegistry {
@@ -12,6 +13,7 @@ class ProspectSourceRegistry {
     'Partner Agency': PartnerAgencyAdapter(),
     'Developer': DeveloperAdapter(),
     'CRM Import': CRMImportAdapter(),
+    'Direct Website': DirectWebsiteAdapter(),
   };
 
   /// Returns registered adapter for a given source type.
@@ -22,6 +24,19 @@ class ProspectSourceRegistry {
   /// Generates initial standard data source configurations for an agent.
   static List<ProspectSourceModel> getInitialSourcesForAgent(String ownerId) {
     return [
+      ProspectSourceModel(
+        ownerId: ownerId,
+        name: 'Agent Landing Page & Website Inquiries',
+        type: 'Direct Website',
+        status: 'Active',
+        configuration: {
+          'domain': 'propmatch.ai/agent/$ownerId',
+          'honeypotSpamProtection': true,
+          'requirePdpaCheckbox': true,
+        },
+        totalProspectsImported: 18,
+        lastSyncAt: DateTime.now().subtract(const Duration(minutes: 15)),
+      ),
       ProspectSourceModel(
         ownerId: ownerId,
         name: 'Malaysian Property Portals Feed',

@@ -14,9 +14,14 @@ import '../models/prospect_source_model.dart';
 import '../models/prospect_consent_event_model.dart';
 import '../models/prospect_activity_model.dart';
 import '../models/prospect_import_job_model.dart';
+import '../models/enquiry_model.dart';
+import '../models/agent_preferences_model.dart';
+import '../models/subscription_model.dart';
+import '../services/lead_distribution/lead_distribution_engine.dart';
 import '../services/crm_import/import_validator.dart';
 import '../services/crm_import/duplicate_detector.dart';
 import '../services/crm_import/batch_importer.dart';
+import '../services/lead_ingestion/lead_ingestion_pipeline.dart';
 import '../repositories/project_repository.dart';
 import '../repositories/buyer_repository.dart';
 import '../repositories/lead_repository.dart';
@@ -65,7 +70,7 @@ class AppStateProvider extends ChangeNotifier {
   AIBackendService get aiService => _aiService;
   bool get isUsingAIFallback => _aiService.isFallbackActive;
   String? get lastAIError => _aiService.lastError;
-  String get currentAIModel => 'gemini-2.5-flash';
+  String get currentAIModel => 'gemini-3.5-flash-lite';
 
   void setAIService(AIBackendService service) {
     _aiService = service;
@@ -107,6 +112,18 @@ class AppStateProvider extends ChangeNotifier {
   String _prospectVerificationFilter = 'All';
   bool _hasGeneratedDemoProspects = false;
   List<ProspectImportJobModel> _importJobs = [];
+
+  // Incoming Enquiries Pipeline (Phase 4.3 & 4.4 Dual-Channel)
+  List<EnquiryModel> _incomingEnquiries = [];
+  String _enquiryStatusFilter = 'All';
+  String _enquirySourceFilter = 'All';
+  String _enquiryChannelFilter = 'All'; // 'All', 'Channel A: Agent-Generated', 'Channel B: Platform-Generated'
+  String _enquiryCampaignFilter = 'All';
+  String _enquirySearchQuery = '';
+  bool _isLoadingEnquiries = false;
+  String? _enquiryError;
+  AgentPreferencesModel _agentPreferences = AgentPreferencesModel(agentId: 'demo-agent-001');
+  final AgentSubscriptionModel _agentSubscription = AgentSubscriptionModel.defaultForAgent('demo-agent-001');
 
   // Consent Records
   List<ConsentRecordModel> _consentRecords = [];
@@ -279,6 +296,76 @@ class AppStateProvider extends ChangeNotifier {
   int get contactEligibleProspectsCount => _prospects.where((p) => p.isEligibleForContact).length;
   int get qualifiedProspectsCount => _prospects.where((p) => p.status == 'Qualified').length;
   int get demoProspectsCount => _prospects.where((p) => p.isDemo).length;
+
+  // Incoming Enquiries Pipeline Getters (Phase 4.3)
+  List<EnquiryModel> get allIncomingEnquiries => List.unmodifiable(_incomingEnquiries);
+  bool get isLoadingEnquiries => _isLoadingEnquiries;
+  String? get enquiryError => _enquiryError;
+  String get enquiryStatusFilter => _enquiryStatusFilter;
+  String get enquirySourceFilter => _enquirySourceFilter;
+  String get enquiryChannelFilter => _enquiryChannelFilter;
+  String get enquiryCampaignFilter => _enquiryCampaignFilter;
+  String get enquirySearchQuery => _enquirySearchQuery;
+  AgentPreferencesModel get agentPreferences => _agentPreferences;
+  AgentSubscriptionModel get agentSubscription => _agentSubscription;
+
+  List<EnquiryModel> get filteredEnquiries {
+    return _incomingEnquiries.where((e) {
+      final matchesSearch = _enquirySearchQuery.isEmpty ||
+          e.fullName.toLowerCase().contains(_enquirySearchQuery.toLowerCase()) ||
+          e.phone.contains(_enquirySearchQuery) ||
+          e.email.toLowerCase().contains(_enquirySearchQuery.toLowerCase()) ||
+          e.preferredLocation.toLowerCase().contains(_enquirySearchQuery.toLowerCase()) ||
+          e.sourceName.toLowerCase().contains(_enquirySearchQuery.toLowerCase()) ||
+          (e.campaignId != null && e.campaignId!.toLowerCase().contains(_enquirySearchQuery.toLowerCase()));
+
+      final matchesStatus = _enquiryStatusFilter == 'All' || e.processingStatus == _enquiryStatusFilter;
+      final matchesSource = _enquirySourceFilter == 'All' || e.sourceType == _enquirySourceFilter;
+      final matchesChannel = _enquiryChannelFilter == 'All' ||
+          (_enquiryChannelFilter.contains('Channel A') && e.isChannelA) ||
+          (_enquiryChannelFilter.contains('Channel B') && e.isChannelB);
+      final matchesCampaign = _enquiryCampaignFilter == 'All' || e.campaignId == _enquiryCampaignFilter;
+
+      return matchesSearch && matchesStatus && matchesSource && matchesChannel && matchesCampaign;
+    }).toList();
+  }
+
+  int get totalEnquiriesCount => _incomingEnquiries.length;
+  int get qualifiedEnquiriesCount => _incomingEnquiries.where((e) => e.processingStatus == 'Qualified').length;
+  int get pendingEnquiriesCount => _incomingEnquiries.where((e) => e.processingStatus == 'Pending' || e.processingStatus == 'Received').length;
+  int get duplicateEnquiriesCount => _incomingEnquiries.where((e) => e.isDuplicate || e.processingStatus == 'Duplicate').length;
+  int get ineligibleEnquiriesCount => _incomingEnquiries.where((e) => e.processingStatus == 'Ineligible' || e.contactEligibility == 'Do Not Contact').length;
+  int get channelAEnquiriesCount => _incomingEnquiries.where((e) => e.isChannelA).length;
+  int get channelBEnquiriesCount => _incomingEnquiries.where((e) => e.isChannelB).length;
+  int get unassignedEnquiriesCount => _incomingEnquiries.where((e) => e.isUnassigned).length;
+
+  Map<String, int> get campaignPerformance {
+    final Map<String, int> map = {};
+    for (final e in _incomingEnquiries) {
+      if (e.campaignId != null && e.campaignId!.isNotEmpty) {
+        map[e.campaignId!] = (map[e.campaignId!] ?? 0) + 1;
+      }
+    }
+    return map;
+  }
+
+  Map<String, int> get enquiriesBySource {
+    final Map<String, int> map = {
+      'Property Portal': 0,
+      'Partner Agency': 0,
+      'Developer': 0,
+      'Direct Website': 0,
+      'CRM Import': 0,
+    };
+    for (final e in _incomingEnquiries) {
+      if (map.containsKey(e.sourceType)) {
+        map[e.sourceType] = map[e.sourceType]! + 1;
+      } else {
+        map[e.sourceType] = 1;
+      }
+    }
+    return map;
+  }
 
   MarketingContentResult? get generatedMarketingContent => _generatedMarketingContent;
   AudienceSegmentModel? get selectedAudienceForMarketing => _selectedAudienceForMarketing;
@@ -454,6 +541,7 @@ class AppStateProvider extends ChangeNotifier {
       _followups = DemoDataService.getInitialFollowups();
       _prospects = DemoDataService.getInitialDemoProspects(_defaultOwnerId);
       _prospectSources = ProspectSourceRegistry.getInitialSourcesForAgent(_defaultOwnerId);
+      _incomingEnquiries = DemoDataService.getInitialDemoEnquiries(_defaultOwnerId);
       _hasGeneratedDemoProspects = true;
     }
   }
@@ -528,6 +616,7 @@ class AppStateProvider extends ChangeNotifier {
       _followups = DemoDataService.getInitialFollowups();
       _prospects = DemoDataService.getInitialDemoProspects(_defaultOwnerId);
       _prospectSources = ProspectSourceRegistry.getInitialSourcesForAgent(_defaultOwnerId);
+      _incomingEnquiries = DemoDataService.getInitialDemoEnquiries(_defaultOwnerId);
       _hasGeneratedDemoProspects = true;
       notifyListeners();
     } else {
@@ -554,6 +643,7 @@ class AppStateProvider extends ChangeNotifier {
       final repoProspects = await _prospectRepository.getProspects(ownerId: ownerId);
       final repoSources = await _prospectRepository.getDataSources(ownerId: ownerId);
       final repoJobs = await _prospectRepository.getImportJobs(ownerId: ownerId);
+      final repoEnquiries = await _prospectRepository.getIncomingEnquiries(ownerId: ownerId);
 
       // Prevent race conditions: ignore response if session has changed
       if (sessionId != _authSessionId) {
@@ -587,6 +677,7 @@ class AppStateProvider extends ChangeNotifier {
         _prospects = repoProspects;
         _prospectSources = repoSources;
         _importJobs = repoJobs;
+        _incomingEnquiries = repoEnquiries;
       } else {
         // Demo account: if repository has records, synchronize; otherwise retain demo fallbacks
         if (repoProjects.isNotEmpty) {
@@ -616,6 +707,9 @@ class AppStateProvider extends ChangeNotifier {
         }
         if (repoJobs.isNotEmpty) {
           _importJobs = repoJobs;
+        }
+        if (repoEnquiries.isNotEmpty) {
+          _incomingEnquiries = repoEnquiries;
         }
       }
     } catch (e) {
@@ -1209,6 +1303,199 @@ class AppStateProvider extends ChangeNotifier {
     notifyListeners();
 
     return result;
+  }
+
+  // --- INCOMING ENQUIRIES PIPELINE ACTIONS (PHASE 4.3) ---
+  void setEnquiryStatusFilter(String filter) {
+    _enquiryStatusFilter = filter;
+    notifyListeners();
+  }
+
+  void setEnquirySourceFilter(String filter) {
+    _enquirySourceFilter = filter;
+    notifyListeners();
+  }
+
+  void setEnquirySearchQuery(String query) {
+    _enquirySearchQuery = query;
+    notifyListeners();
+  }
+
+  Future<void> loadIncomingEnquiries() async {
+    _isLoadingEnquiries = true;
+    _enquiryError = null;
+    notifyListeners();
+    try {
+      _incomingEnquiries = await _prospectRepository.getIncomingEnquiries(
+        ownerId: currentOwnerId,
+      );
+    } catch (e) {
+      _enquiryError = e.toString();
+    } finally {
+      _isLoadingEnquiries = false;
+      notifyListeners();
+    }
+  }
+
+  Future<IngestionPipelineResult> ingestLeadEnquiry({
+    required String sourceType,
+    required Map<String, dynamic> rawPayload,
+  }) async {
+    final result = await LeadIngestionPipeline.processEnquiry(
+      ownerId: currentOwnerId,
+      sourceType: sourceType,
+      rawPayload: rawPayload,
+      existingProspects: _prospects,
+      existingBuyers: _buyers,
+      availableProjects: _projects,
+    );
+
+    // Save enquiry
+    await _prospectRepository.saveIncomingEnquiry(result.enquiry);
+    _incomingEnquiries.insert(0, result.enquiry);
+
+    // If a new prospect was created, save and add to list
+    if (result.createdProspect != null) {
+      await _prospectRepository.createProspect(result.createdProspect!);
+      _prospects.insert(0, result.createdProspect!);
+
+      // Also record activity
+      final activity = ProspectActivityModel(
+        id: 'act-${DateTime.now().millisecondsSinceEpoch}',
+        ownerId: currentOwnerId,
+        prospectId: result.createdProspect!.id,
+        activityType: 'Discovered',
+        title: 'Lead Ingested from ${result.enquiry.sourceName}',
+        description: 'Auto-ingested via Phase 4.3 Pipeline. Status: ${result.enquiry.processingStatus}. Match Score: ${result.matchScore?.toInt() ?? 0}%.',
+        actor: 'Lead Ingestion Pipeline',
+      );
+      await _prospectRepository.recordActivity(activity);
+
+      // Record consent event if eligible
+      if (result.enquiry.contactEligibility == 'Eligible' && result.enquiry.consentEvidence.isNotEmpty) {
+        final consent = ProspectConsentEventModel(
+          id: 'consent-${DateTime.now().millisecondsSinceEpoch}',
+          ownerId: currentOwnerId,
+          prospectId: result.createdProspect!.id,
+          consentType: 'Direct Inquiry Response',
+          status: 'Granted',
+          source: result.enquiry.sourceName,
+          evidenceText: result.enquiry.consentEvidence,
+          communicationChannels: result.createdProspect!.consentedChannels,
+        );
+        await _prospectRepository.recordConsentEvent(consent);
+      }
+    }
+
+    notifyListeners();
+    return result;
+  }
+
+  Future<void> generateDemoEnquiries() async {
+    final demoEnquiries = DemoDataService.getInitialDemoEnquiries(currentOwnerId);
+    _incomingEnquiries.removeWhere((e) => e.isDemo);
+    _incomingEnquiries.addAll(demoEnquiries);
+    notifyListeners();
+
+    try {
+      await _prospectRepository.deleteDemoEnquiries(ownerId: currentOwnerId);
+      await _prospectRepository.saveBulkEnquiries(demoEnquiries);
+    } catch (_) {
+      // In-memory resilience
+    }
+  }
+
+  Future<void> purgeDemoEnquiries() async {
+    _incomingEnquiries.removeWhere((e) => e.isDemo);
+    notifyListeners();
+    try {
+      await _prospectRepository.deleteDemoEnquiries(ownerId: currentOwnerId);
+    } catch (_) {
+      // In-memory resilience
+    }
+  }
+
+  void setEnquiryChannelFilter(String channel) {
+    _enquiryChannelFilter = channel;
+    notifyListeners();
+  }
+
+  void setEnquiryCampaignFilter(String campaign) {
+    _enquiryCampaignFilter = campaign;
+    notifyListeners();
+  }
+
+  Future<void> updateAgentPreferences(AgentPreferencesModel prefs) async {
+    _agentPreferences = prefs;
+    notifyListeners();
+  }
+
+  Future<void> updateAgentRenNumber(String renNumber, {bool verified = false}) async {
+    if (_currentUserProfile != null) {
+      _currentUserProfile = _currentUserProfile!.copyWith(
+        renNumber: renNumber,
+        isRenVerified: verified,
+      );
+      notifyListeners();
+    }
+  }
+
+  Future<void> saveIncomingEnquiry(EnquiryModel enquiry) async {
+    await _prospectRepository.saveIncomingEnquiry(enquiry);
+    _incomingEnquiries.removeWhere((e) => e.id == enquiry.id);
+    _incomingEnquiries.insert(0, enquiry);
+    notifyListeners();
+  }
+
+  Future<DistributionRoutingDecision> distributePlatformEnquiry(Map<String, dynamic> rawPayload) async {
+    final decision = LeadDistributionEngine.routeEnquiry(
+      rawEnquiry: rawPayload,
+      candidatePreferences: [_agentPreferences],
+      agentProfiles: {
+        _agentPreferences.agentId: _currentUserProfile ?? UserModel(ownerId: currentOwnerId, fullName: 'Agent', email: 'agent@propmatch.ai')
+      },
+    );
+
+    if (decision.isAssigned && decision.assignedAgentId != null) {
+      final ingestionPayload = {
+        ...rawPayload,
+        'acquisitionChannel': 'Channel B: Platform-Generated',
+        'assignedAgentId': decision.assignedAgentId,
+        'routingStatus': 'Assigned',
+        'routingReason': decision.rationale,
+        'agentSuitabilityScore': decision.suitabilityScore,
+        'routingTimestamp': decision.routingTimestamp.toIso8601String(),
+      };
+      await ingestLeadEnquiry(
+        sourceType: rawPayload['sourceType']?.toString() ?? 'Property Portal',
+        rawPayload: ingestionPayload,
+      );
+    } else {
+      final unassigned = EnquiryModel(
+        ownerId: 'unassigned',
+        acquisitionChannel: 'Channel B: Platform-Generated',
+        sourceType: rawPayload['sourceType']?.toString() ?? 'Property Portal',
+        sourceName: rawPayload['sourceName']?.toString() ?? 'Platform Provider',
+        fullName: rawPayload['fullName']?.toString() ?? rawPayload['name']?.toString() ?? 'Prospective Lead',
+        phone: rawPayload['phone']?.toString() ?? '',
+        email: rawPayload['email']?.toString() ?? '',
+        preferredLocation: rawPayload['location']?.toString() ?? 'Kuala Lumpur',
+        preferredState: rawPayload['state']?.toString() ?? 'Kuala Lumpur',
+        propertyType: rawPayload['propertyType']?.toString() ?? 'Condominium',
+        budgetMin: (rawPayload['budgetMin'] as num?)?.toDouble() ?? 400000.0,
+        budgetMax: (rawPayload['budgetMax'] as num?)?.toDouble() ?? 700000.0,
+        stage: 'Source Validation',
+        processingStatus: 'Pending',
+        statusReason: decision.rationale,
+        routingStatus: 'Unassigned Queue',
+        routingReason: decision.rationale,
+        routingTimestamp: decision.routingTimestamp,
+        isDemo: rawPayload['isDemo'] as bool? ?? false,
+      );
+      await saveIncomingEnquiry(unassigned);
+    }
+
+    return decision;
   }
 
   // --- AI AUDIENCE DISCOVERY ---

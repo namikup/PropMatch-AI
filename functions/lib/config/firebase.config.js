@@ -60,6 +60,8 @@ exports.collections = {
     prospectActivities: exports.db.collection("prospect_activities"),
     prospectImportJobs: exports.db.collection("prospect_import_jobs"),
     prospectMatches: exports.db.collection("prospect_matches"),
-    prospectAuditLogs: exports.db.collection("prospect_audit_logs")
+    prospectAuditLogs: exports.db.collection("prospect_audit_logs"),
+    incomingEnquiries: exports.db.collection("incoming_enquiries"),
+    agentPreferences: exports.db.collection("agent_preferences")
 };
 //# sourceMappingURL=firebase.config.js.map

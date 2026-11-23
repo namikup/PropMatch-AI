@@ -3,6 +3,7 @@ import '../models/prospect_consent_event_model.dart';
 import '../models/prospect_activity_model.dart';
 import '../models/prospect_source_model.dart';
 import '../models/prospect_import_job_model.dart';
+import '../models/enquiry_model.dart';
 
 abstract class ProspectRepository {
   Future<List<ProspectModel>> getProspects({required String ownerId});
@@ -36,6 +37,17 @@ abstract class ProspectRepository {
   // Import Jobs History
   Future<List<ProspectImportJobModel>> getImportJobs({required String ownerId});
   Future<void> saveImportJob(ProspectImportJobModel job);
+
+  // Incoming Enquiries Pipeline (Phase 4.3)
+  Future<List<EnquiryModel>> getIncomingEnquiries({
+    required String ownerId,
+    String? sourceType,
+    String? status,
+  });
+  Future<EnquiryModel?> getEnquiryById(String id, {String? ownerId});
+  Future<void> saveIncomingEnquiry(EnquiryModel enquiry);
+  Future<void> saveBulkEnquiries(List<EnquiryModel> enquiries);
+  Future<void> deleteDemoEnquiries({required String ownerId});
 }
 
 /// In-memory implementation of [ProspectRepository] for testing and demo mode.
@@ -45,6 +57,7 @@ class InMemoryProspectRepository implements ProspectRepository {
   final List<ProspectActivityModel> _activities = [];
   final List<ProspectSourceModel> _sources = [];
   final List<ProspectImportJobModel> _importJobs = [];
+  final List<EnquiryModel> _enquiries = [];
 
   InMemoryProspectRepository([
     List<ProspectModel>? initialProspects,
@@ -221,5 +234,57 @@ class InMemoryProspectRepository implements ProspectRepository {
     } else {
       _importJobs.insert(0, job);
     }
+  }
+
+  // Incoming Enquiries Pipeline (Phase 4.3)
+  @override
+  Future<List<EnquiryModel>> getIncomingEnquiries({
+    required String ownerId,
+    String? sourceType,
+    String? status,
+  }) async {
+    return _enquiries.where((e) {
+      if (e.ownerId != ownerId) return false;
+      if (sourceType != null && sourceType != 'All' && e.sourceType != sourceType) {
+        return false;
+      }
+      if (status != null && status != 'All' && e.processingStatus != status) {
+        return false;
+      }
+      return true;
+    }).toList();
+  }
+
+  @override
+  Future<EnquiryModel?> getEnquiryById(String id, {String? ownerId}) async {
+    final matches = _enquiries.where(
+      (e) => e.id == id && (ownerId == null || e.ownerId == ownerId),
+    );
+    return matches.isNotEmpty ? matches.first : null;
+  }
+
+  @override
+  Future<void> saveIncomingEnquiry(EnquiryModel enquiry) async {
+    final idx = _enquiries.indexWhere((e) => e.id == enquiry.id);
+    if (idx != -1) {
+      if (_enquiries[idx].ownerId != enquiry.ownerId) {
+        throw StateError('Tenant violation: Cannot overwrite an enquiry owned by another agent.');
+      }
+      _enquiries[idx] = enquiry;
+    } else {
+      _enquiries.insert(0, enquiry);
+    }
+  }
+
+  @override
+  Future<void> saveBulkEnquiries(List<EnquiryModel> enquiries) async {
+    for (final e in enquiries) {
+      await saveIncomingEnquiry(e);
+    }
+  }
+
+  @override
+  Future<void> deleteDemoEnquiries({required String ownerId}) async {
+    _enquiries.removeWhere((e) => e.ownerId == ownerId && e.isDemo);
   }
 }

@@ -299,6 +299,21 @@ service cloud.firestore {
     }
 
     // =========================================================================
+    // 18. INCOMING ENQUIRIES PIPELINE (`incoming_enquiries/{enquiryId}`)
+    // =========================================================================
+    match /incoming_enquiries/{enquiryId} {
+      allow read: if isResourceOwner();
+
+      allow create: if isAssigningSelfAsOwner()
+                    && isNonEmptyString(request.resource.data.fullName, 2, 100);
+
+      allow update: if isResourceOwner()
+                    && isOwnerImmutable();
+
+      allow delete: if isResourceOwner();
+    }
+
+    // =========================================================================
     // DEFAULT DENY FALLTHROUGH
     // =========================================================================
     match /{document=**} {

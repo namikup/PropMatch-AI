@@ -52,9 +52,10 @@ export const RETIRED_MODELS = [
  * Active supported models for the Gemini Developer API (verified November 2026).
  */
 export const ACTIVE_SUPPORTED_MODELS = [
-  "gemini-2.5-flash",      // Primary: Balanced multimodal reasoning ($0.30 in / $2.50 out per 1M)
-  "gemini-3.5-flash-lite",  // Fallback: Equivalent-cost Flash-Lite workhorse ($0.30 in / $2.50 out per 1M)
-  "gemini-3.8-flash"       // Advanced: Flagship enterprise agentic reasoning ($0.75 in / $3.75 out per 1M)
+  "gemini-3.5-flash-lite",  // Primary: Fast, economical multimodal reasoning ($0.30 in / $2.50 out per 1M)
+  "gemini-3.5-flash",       // Fallback/Secondary: Balanced reasoning workhorse ($0.30 in / $2.50 out per 1M)
+  "gemini-3.8-flash",       // Advanced: Flagship enterprise agentic reasoning ($0.75 in / $3.75 out per 1M)
+  "gemini-2.5-flash"        // Legacy: Retained for backward compatibility (returns 404 for new keys)
 ] as const;
 
 export type SupportedGeminiModel = typeof ACTIVE_SUPPORTED_MODELS[number];
@@ -65,7 +66,7 @@ export type SupportedGeminiModel = typeof ACTIVE_SUPPORTED_MODELS[number];
  * Source: https://ai.google.dev/gemini-api/docs/pricing (Verified: 2026-11-19)
  */
 export const MODEL_PRICING_REGISTRY: Record<SupportedGeminiModel, ModelPricing> = {
-  "gemini-2.5-flash": {
+  "gemini-3.5-flash-lite": {
     inputPricePerMillion: 0.30,
     outputPricePerMillion: 2.50,
     thinkingTokenBilling: "billed_as_output",
@@ -76,7 +77,18 @@ export const MODEL_PRICING_REGISTRY: Record<SupportedGeminiModel, ModelPricing> 
     referenceFreeTierRpmLimit: 15,
     referenceFreeTierRpdLimit: 1500
   },
-  "gemini-3.5-flash-lite": {
+  "gemini-3.5-flash": {
+    inputPricePerMillion: 0.30,
+    outputPricePerMillion: 2.50,
+    thinkingTokenBilling: "billed_as_output",
+    cachedInputPricePerMillion: 0.075,
+    serviceTier: "standard",
+    pricingEffectiveDate: "2026-11-19",
+    freeTierAllowed: true,
+    referenceFreeTierRpmLimit: 15,
+    referenceFreeTierRpdLimit: 1500
+  },
+  "gemini-2.5-flash": {
     inputPricePerMillion: 0.30,
     outputPricePerMillion: 2.50,
     thinkingTokenBilling: "billed_as_output",
@@ -199,8 +211,8 @@ export function getGeminiConfig(injectedKey?: string): GeminiConfig {
   const apiKey = injectedKey || process.env.GEMINI_API_KEY || "";
 
   // Dynamic model configuration with validation
-  const rawPrimary = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-  const rawFallback = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.5-flash-lite";
+  const rawPrimary = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
+  const rawFallback = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.5-flash";
   const allowExpensiveFallback = process.env.GEMINI_ALLOW_EXPENSIVE_FALLBACK === "true";
 
   const primaryModel = validateModelIdentifier(rawPrimary, "Primary model");
@@ -216,8 +228,8 @@ export function getGeminiConfig(injectedKey?: string): GeminiConfig {
     allowExpensiveFallback,
     temperature: parseFloat(process.env.GEMINI_TEMPERATURE || "0.2"),
     topP: 0.8,
-    maxOutputTokens: 2048,
-    timeoutMs: parseInt(process.env.GEMINI_TIMEOUT_MS || "30000", 10), // 30s strict timeout
+    maxOutputTokens: parseInt(process.env.GEMINI_MAX_OUTPUT_TOKENS || "8192", 10),
+    timeoutMs: parseInt(process.env.GEMINI_TIMEOUT_MS || "60000", 10), // 60s timeout matching Cloud Function callOptions
     maxRetries: parseInt(process.env.GEMINI_MAX_RETRIES || "2", 10)
   };
 }

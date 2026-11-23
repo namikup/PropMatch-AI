@@ -9,6 +9,7 @@ import { Logger } from "./utils/logger";
 import { collections } from "./config/firebase.config";
 import { getGeminiConfig } from "./config/gemini.config";
 import { ProspectImportService } from "./services/prospect_import_service";
+import { LeadIngestionService } from "./services/lead_ingestion_service";
 
 /**
  * Secret Manager binding for Gemini Developer API.
@@ -36,7 +37,11 @@ const callOptions = {
 
 function getRuntimeApiKey(): string {
   try {
-    return geminiApiKey.value() || process.env.GEMINI_API_KEY || "";
+    const key = geminiApiKey.value() || process.env.GEMINI_API_KEY || "";
+    if (key && !process.env.GEMINI_API_KEY) {
+      process.env.GEMINI_API_KEY = key;
+    }
+    return key;
   } catch (_) {
     return process.env.GEMINI_API_KEY || "";
   }
@@ -746,5 +751,83 @@ export const importProspectsBatch = onCall(callOptions, async (request) => {
   } catch (err: unknown) {
     if (err instanceof HttpsError) throw err;
     throw ErrorHandler.handle(err, "importProspectsBatch", { ownerId: callerUid });
+  }
+});
+
+/**
+ * Callable Function: Ingest Lead Enquiry (Phase 4.3 Lead Ingestion Pipeline)
+ */
+export const ingestLeadEnquiry = onCall(callOptions, async (request) => {
+  const callerUid = AIRequestValidator.validateAuth(request.auth?.uid);
+  const input = request.data;
+  if (!input || typeof input !== "object") {
+    throw new HttpsError("invalid-argument", "Missing enquiry data payload.");
+  }
+
+  try {
+    const result = await LeadIngestionService.processEnquiry(callerUid, input);
+    return { success: result.success, data: result };
+  } catch (err: unknown) {
+    if (err instanceof HttpsError) throw err;
+    throw ErrorHandler.handle(err, "ingestLeadEnquiry", { ownerId: callerUid });
+  }
+});
+
+/**
+ * Callable Function: Get Incoming Enquiries (Phase 4.3 Lead Ingestion Pipeline)
+ */
+export const getIncomingEnquiries = onCall(callOptions, async (request) => {
+  const callerUid = AIRequestValidator.validateAuth(request.auth?.uid);
+  const sourceType = request.data?.sourceType;
+  const status = request.data?.status;
+
+  try {
+    const data = await LeadIngestionService.getEnquiries(callerUid, { sourceType, status });
+    return { success: true, data };
+  } catch (err: unknown) {
+    if (err instanceof HttpsError) throw err;
+    throw ErrorHandler.handle(err, "getIncomingEnquiries", { ownerId: callerUid });
+  }
+});
+
+/**
+ * Callable Function: Update Incoming Enquiry Status (Phase 4.3.1 Security Hardened)
+ */
+export const updateIncomingEnquiryStatus = onCall(callOptions, async (request) => {
+  const callerUid = AIRequestValidator.validateAuth(request.auth?.uid);
+  const enquiryId = request.data?.enquiryId;
+  const newStatus = request.data?.status;
+
+  if (!enquiryId || typeof enquiryId !== "string") {
+    throw new HttpsError("invalid-argument", "Missing required enquiryId.");
+  }
+  if (!newStatus || typeof newStatus !== "string") {
+    throw new HttpsError("invalid-argument", "Missing required status.");
+  }
+
+  try {
+    await LeadIngestionService.updateEnquiryStatus(callerUid, enquiryId, newStatus);
+    return { success: true };
+  } catch (err: unknown) {
+    if (err instanceof HttpsError) throw err;
+    throw ErrorHandler.handle(err, "updateIncomingEnquiryStatus", { ownerId: callerUid });
+  }
+});
+
+/**
+ * Callable Function: Distribute Platform Lead (Phase 4.4 Channel B Routing Engine)
+ */
+export const distributePlatformLead = onCall(callOptions, async (request) => {
+  const input = request.data;
+  if (!input || typeof input !== "object") {
+    throw new HttpsError("invalid-argument", "Missing enquiry data payload.");
+  }
+
+  try {
+    const result = await LeadIngestionService.distributePlatformEnquiry(input);
+    return { success: result.success, data: result };
+  } catch (err: unknown) {
+    if (err instanceof HttpsError) throw err;
+    throw ErrorHandler.handle(err, "distributePlatformLead");
   }
 });

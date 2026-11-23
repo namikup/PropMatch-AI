@@ -4,6 +4,7 @@ import '../models/prospect_consent_event_model.dart';
 import '../models/prospect_activity_model.dart';
 import '../models/prospect_source_model.dart';
 import '../models/prospect_import_job_model.dart';
+import '../models/enquiry_model.dart';
 import 'prospect_repository.dart';
 
 /// Cloud Firestore implementation of [ProspectRepository].
@@ -33,6 +34,9 @@ class FirestoreProspectRepository implements ProspectRepository {
 
   CollectionReference<Map<String, dynamic>> get _importJobsCollection =>
       _firestore.collection('prospect_import_jobs');
+
+  CollectionReference<Map<String, dynamic>> get _enquiriesCollection =>
+      _firestore.collection('incoming_enquiries');
 
   @override
   Future<List<ProspectModel>> getProspects({required String ownerId}) async {
@@ -285,5 +289,108 @@ class FirestoreProspectRepository implements ProspectRepository {
       throw ArgumentError('Cannot save import job without a valid ownerId.');
     }
     await _importJobsCollection.doc(job.id).set(job.toMap());
+  }
+
+  // Incoming Enquiries Pipeline (Phase 4.3)
+  @override
+  Future<List<EnquiryModel>> getIncomingEnquiries({
+    required String ownerId,
+    String? sourceType,
+    String? status,
+  }) async {
+    if (ownerId.trim().isEmpty) return [];
+
+    Query<Map<String, dynamic>> query = _enquiriesCollection
+        .where('ownerId', isEqualTo: ownerId);
+
+    if (sourceType != null && sourceType != 'All') {
+      query = query.where('sourceType', isEqualTo: sourceType);
+    }
+    if (status != null && status != 'All') {
+      query = query.where('processingStatus', isEqualTo: status);
+    }
+
+    final querySnapshot = await query.get();
+    final list = querySnapshot.docs
+        .map((doc) => EnquiryModel.fromMap(doc.data()))
+        .toList();
+    list.sort((a, b) => b.receivedAt.compareTo(a.receivedAt));
+    return list;
+  }
+
+  @override
+  Future<EnquiryModel?> getEnquiryById(String id, {String? ownerId}) async {
+    final doc = await _enquiriesCollection.doc(id).get();
+    if (doc.exists && doc.data() != null) {
+      final model = EnquiryModel.fromMap(doc.data()!);
+      if (ownerId != null && ownerId.isNotEmpty && model.ownerId != ownerId) {
+        return null;
+      }
+      return model;
+    }
+    return null;
+  }
+
+  @override
+  Future<void> saveIncomingEnquiry(EnquiryModel enquiry) async {
+    if (enquiry.ownerId.trim().isEmpty) {
+      throw ArgumentError('Cannot save enquiry without a valid ownerId.');
+    }
+    final existingDoc = await _enquiriesCollection.doc(enquiry.id).get();
+    if (existingDoc.exists && existingDoc.data() != null) {
+      final existingOwner = existingDoc.data()!['ownerId']?.toString();
+      if (existingOwner != null && existingOwner != enquiry.ownerId) {
+        throw StateError('Tenant violation: Cannot overwrite an enquiry owned by another agent.');
+      }
+    }
+    await _enquiriesCollection.doc(enquiry.id).set(enquiry.toMap());
+  }
+
+  @override
+  Future<void> saveBulkEnquiries(List<EnquiryModel> enquiries) async {
+    if (enquiries.isEmpty) return;
+
+    for (int start = 0; start < enquiries.length; start += maxFirestoreBatchOperations) {
+      final end = (start + maxFirestoreBatchOperations < enquiries.length)
+          ? start + maxFirestoreBatchOperations
+          : enquiries.length;
+      final chunk = enquiries.sublist(start, end);
+
+      final batch = _firestore.batch();
+      for (final e in chunk) {
+        if (e.ownerId.trim().isEmpty) {
+          throw ArgumentError('Cannot save enquiry without a valid ownerId.');
+        }
+        final docRef = _enquiriesCollection.doc(e.id);
+        batch.set(docRef, e.toMap());
+      }
+      await batch.commit();
+    }
+  }
+
+  @override
+  Future<void> deleteDemoEnquiries({required String ownerId}) async {
+    if (ownerId.trim().isEmpty) return;
+
+    final querySnapshot = await _enquiriesCollection
+        .where('ownerId', isEqualTo: ownerId)
+        .where('isDemo', isEqualTo: true)
+        .get();
+
+    if (querySnapshot.docs.isEmpty) return;
+
+    final docs = querySnapshot.docs;
+    for (int start = 0; start < docs.length; start += maxFirestoreBatchOperations) {
+      final end = (start + maxFirestoreBatchOperations < docs.length)
+          ? start + maxFirestoreBatchOperations
+          : docs.length;
+      final chunk = docs.sublist(start, end);
+
+      final batch = _firestore.batch();
+      for (final doc in chunk) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+    }
   }
 }

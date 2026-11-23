@@ -29,10 +29,10 @@ describe("Phase 3.2.1: Live Gemini Configuration & Verification Audit", () => {
   };
 
   it("1. verifies model registry configuration (Primary and Fallback)", () => {
-    // Primary model must be gemini-2.5-flash
-    expect(ACTIVE_SUPPORTED_MODELS[0]).toBe("gemini-2.5-flash");
-    // Fallback model must be gemini-3.5-flash-lite
-    expect(ACTIVE_SUPPORTED_MODELS[1]).toBe("gemini-3.5-flash-lite");
+    // Primary model must be gemini-3.5-flash-lite
+    expect(ACTIVE_SUPPORTED_MODELS[0]).toBe("gemini-3.5-flash-lite");
+    // Fallback model must be gemini-3.5-flash
+    expect(ACTIVE_SUPPORTED_MODELS[1]).toBe("gemini-3.5-flash");
 
     // Must not contain any retired models
     for (const retired of RETIRED_MODELS) {
@@ -41,7 +41,7 @@ describe("Phase 3.2.1: Live Gemini Configuration & Verification Audit", () => {
   });
 
   it("2. verifies official pricing registry for primary model", () => {
-    const pricing = MODEL_PRICING_REGISTRY["gemini-2.5-flash"];
+    const pricing = MODEL_PRICING_REGISTRY["gemini-3.5-flash-lite"];
     expect(pricing.inputPricePerMillion).toBe(0.30);
     expect(pricing.outputPricePerMillion).toBe(2.50);
     expect(pricing.thinkingTokenBilling).toBe("billed_as_output");
@@ -67,8 +67,8 @@ describe("Phase 3.2.1: Live Gemini Configuration & Verification Audit", () => {
     const emptyConfig = getGeminiConfig("");
     expect(emptyConfig.apiKey).toBe("");
     const validConfig = getGeminiConfig("dummy-key");
-    expect(validConfig.primaryModel).toBe("gemini-2.5-flash");
-    expect(validConfig.fallbackModel).toBe("gemini-3.5-flash-lite");
+    expect(validConfig.primaryModel).toBe("gemini-3.5-flash-lite");
+    expect(validConfig.fallbackModel).toBe("gemini-3.5-flash");
     expect(validConfig.apiKey).toBe("dummy-key");
   });
 });

@@ -1,4 +1,5 @@
 import '../../models/prospect_model.dart';
+import '../../models/enquiry_model.dart';
 import 'prospect_source_adapter.dart';
 
 /// Adapter interface for CSV, JSON, and standard CRM file exports (Salesforce, HubSpot, custom CSV).
@@ -17,6 +18,43 @@ class CRMImportAdapter implements ProspectSourceAdapter {
   Future<bool> testConnection(Map<String, dynamic> config) async {
     // File or format schema check
     return config.containsKey('format') || config.containsKey('mapping');
+  }
+
+  @override
+  EnquiryModel parseEnquiry({
+    required String ownerId,
+    required Map<String, dynamic> rawPayload,
+  }) {
+    final isValid = validateProspectData(rawPayload);
+    final name = rawPayload['fullName'] ?? rawPayload['name'] ?? 'Imported Contact';
+    final phone = rawPayload['phone']?.toString() ?? '';
+    final email = rawPayload['email']?.toString() ?? '';
+
+    return EnquiryModel(
+      ownerId: ownerId,
+      sourceType: sourceType,
+      sourceName: rawPayload['file_name']?.toString() ?? sourceName,
+      sourceReferenceId: rawPayload['row_index']?.toString(),
+      fullName: name.toString().trim(),
+      phone: phone.trim(),
+      email: email.trim(),
+      preferredLocation: rawPayload['location']?.toString() ?? 'Kuala Lumpur',
+      preferredState: rawPayload['state']?.toString() ?? 'Kuala Lumpur',
+      propertyType: rawPayload['propertyType']?.toString() ?? 'Condominium',
+      budgetMin: (rawPayload['budgetMin'] as num?)?.toDouble() ?? 400000.0,
+      budgetMax: (rawPayload['budgetMax'] as num?)?.toDouble() ?? 700000.0,
+      purchasePurpose: rawPayload['purchasePurpose']?.toString() ?? 'Own Stay',
+      buyingTimeline: rawPayload['buyingTimeline']?.toString() ?? '1-3 months',
+      notes: rawPayload['notes']?.toString() ?? 'Imported via CSV/Excel synchronization.',
+      stage: isValid ? 'Data Normalisation' : 'Source Validation',
+      processingStatus: isValid ? 'Pending' : 'Rejected',
+      statusReason: isValid ? null : 'Missing full name',
+      consentStatus: rawPayload['consentEvidence'] != null ? 'Consent Granted' : 'Pending Consent',
+      consentEvidence: rawPayload['consentEvidence']?.toString() ?? '',
+      contactEligibility: rawPayload['consentEvidence'] != null ? 'Eligible' : 'Pending Consent',
+      isDemo: rawPayload['isDemo'] as bool? ?? false,
+      rawMetadata: rawPayload,
+    );
   }
 
   @override

@@ -27,5 +27,7 @@ export const collections = {
   prospectActivities: db.collection("prospect_activities"),
   prospectImportJobs: db.collection("prospect_import_jobs"),
   prospectMatches: db.collection("prospect_matches"),
-  prospectAuditLogs: db.collection("prospect_audit_logs")
+  prospectAuditLogs: db.collection("prospect_audit_logs"),
+  incomingEnquiries: db.collection("incoming_enquiries"),
+  agentPreferences: db.collection("agent_preferences")
 };

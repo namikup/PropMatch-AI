@@ -166,7 +166,7 @@ void main() {
 
     test('8. AppStateProvider surfaces AI fallback status and modern model identifier', () async {
       final provider = AppStateProvider();
-      expect(provider.currentAIModel, equals('gemini-2.5-flash'));
+      expect(provider.currentAIModel, equals('gemini-3.5-flash-lite'));
       expect(provider.isUsingAIFallback, isTrue); // In-memory default uses LocalRuleBasedAIService
 
       await provider.addProject(testProject);

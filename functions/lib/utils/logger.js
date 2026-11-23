@@ -20,10 +20,12 @@ function sanitizeValue(value) {
     if (value === null || value === undefined)
         return value;
     if (typeof value === "string") {
-        // Redact email patterns and Malaysian NRIC patterns
+        // Redact email patterns, Malaysian NRIC patterns, phone numbers and API keys
         return value
             .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "[REDACTED_EMAIL]")
-            .replace(/\b\d{6}-\d{2}-\d{4}\b/g, "[REDACTED_NRIC]");
+            .replace(/\b\d{6}-\d{2}-\d{4}\b/g, "[REDACTED_NRIC]")
+            .replace(/AIza[0-9A-Za-z-_]{20,}/g, "[REDACTED_API_KEY]")
+            .replace(/(\+?6?01[0-9]-?[0-9]{7,8})/g, "[REDACTED_PHONE]");
     }
     if (Array.isArray(value)) {
         return value.map(sanitizeValue);

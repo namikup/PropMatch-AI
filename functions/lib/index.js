@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.importProspectsBatch = exports.getAudienceSegments = exports.getPropertyAnalysis = exports.getAIUsageStats = exports.generateMarketingContent = exports.getMatches = exports.matchBuyers = exports.discoverAudienceSegments = exports.analyzeProperty = exports.geminiApiKey = void 0;
+exports.distributePlatformLead = exports.updateIncomingEnquiryStatus = exports.getIncomingEnquiries = exports.ingestLeadEnquiry = exports.importProspectsBatch = exports.getAudienceSegments = exports.getPropertyAnalysis = exports.getAIUsageStats = exports.generateMarketingContent = exports.getMatches = exports.matchBuyers = exports.discoverAudienceSegments = exports.analyzeProperty = exports.geminiApiKey = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
 const ai_request_validator_1 = require("./validators/ai_request_validator");
@@ -12,6 +12,7 @@ const logger_1 = require("./utils/logger");
 const firebase_config_1 = require("./config/firebase.config");
 const gemini_config_1 = require("./config/gemini.config");
 const prospect_import_service_1 = require("./services/prospect_import_service");
+const lead_ingestion_service_1 = require("./services/lead_ingestion_service");
 /**
  * Secret Manager binding for Gemini Developer API.
  * Securely injected by Google Cloud Secret Manager at function execution time.
@@ -36,7 +37,11 @@ const callOptions = {
 };
 function getRuntimeApiKey() {
     try {
-        return exports.geminiApiKey.value() || process.env.GEMINI_API_KEY || "";
+        const key = exports.geminiApiKey.value() || process.env.GEMINI_API_KEY || "";
+        if (key && !process.env.GEMINI_API_KEY) {
+            process.env.GEMINI_API_KEY = key;
+        }
+        return key;
     }
     catch (_) {
         return process.env.GEMINI_API_KEY || "";
@@ -666,6 +671,83 @@ exports.importProspectsBatch = (0, https_1.onCall)(callOptions, async (request) 
         if (err instanceof https_1.HttpsError)
             throw err;
         throw error_handler_1.ErrorHandler.handle(err, "importProspectsBatch", { ownerId: callerUid });
+    }
+});
+/**
+ * Callable Function: Ingest Lead Enquiry (Phase 4.3 Lead Ingestion Pipeline)
+ */
+exports.ingestLeadEnquiry = (0, https_1.onCall)(callOptions, async (request) => {
+    const callerUid = ai_request_validator_1.AIRequestValidator.validateAuth(request.auth?.uid);
+    const input = request.data;
+    if (!input || typeof input !== "object") {
+        throw new https_1.HttpsError("invalid-argument", "Missing enquiry data payload.");
+    }
+    try {
+        const result = await lead_ingestion_service_1.LeadIngestionService.processEnquiry(callerUid, input);
+        return { success: result.success, data: result };
+    }
+    catch (err) {
+        if (err instanceof https_1.HttpsError)
+            throw err;
+        throw error_handler_1.ErrorHandler.handle(err, "ingestLeadEnquiry", { ownerId: callerUid });
+    }
+});
+/**
+ * Callable Function: Get Incoming Enquiries (Phase 4.3 Lead Ingestion Pipeline)
+ */
+exports.getIncomingEnquiries = (0, https_1.onCall)(callOptions, async (request) => {
+    const callerUid = ai_request_validator_1.AIRequestValidator.validateAuth(request.auth?.uid);
+    const sourceType = request.data?.sourceType;
+    const status = request.data?.status;
+    try {
+        const data = await lead_ingestion_service_1.LeadIngestionService.getEnquiries(callerUid, { sourceType, status });
+        return { success: true, data };
+    }
+    catch (err) {
+        if (err instanceof https_1.HttpsError)
+            throw err;
+        throw error_handler_1.ErrorHandler.handle(err, "getIncomingEnquiries", { ownerId: callerUid });
+    }
+});
+/**
+ * Callable Function: Update Incoming Enquiry Status (Phase 4.3.1 Security Hardened)
+ */
+exports.updateIncomingEnquiryStatus = (0, https_1.onCall)(callOptions, async (request) => {
+    const callerUid = ai_request_validator_1.AIRequestValidator.validateAuth(request.auth?.uid);
+    const enquiryId = request.data?.enquiryId;
+    const newStatus = request.data?.status;
+    if (!enquiryId || typeof enquiryId !== "string") {
+        throw new https_1.HttpsError("invalid-argument", "Missing required enquiryId.");
+    }
+    if (!newStatus || typeof newStatus !== "string") {
+        throw new https_1.HttpsError("invalid-argument", "Missing required status.");
+    }
+    try {
+        await lead_ingestion_service_1.LeadIngestionService.updateEnquiryStatus(callerUid, enquiryId, newStatus);
+        return { success: true };
+    }
+    catch (err) {
+        if (err instanceof https_1.HttpsError)
+            throw err;
+        throw error_handler_1.ErrorHandler.handle(err, "updateIncomingEnquiryStatus", { ownerId: callerUid });
+    }
+});
+/**
+ * Callable Function: Distribute Platform Lead (Phase 4.4 Channel B Routing Engine)
+ */
+exports.distributePlatformLead = (0, https_1.onCall)(callOptions, async (request) => {
+    const input = request.data;
+    if (!input || typeof input !== "object") {
+        throw new https_1.HttpsError("invalid-argument", "Missing enquiry data payload.");
+    }
+    try {
+        const result = await lead_ingestion_service_1.LeadIngestionService.distributePlatformEnquiry(input);
+        return { success: result.success, data: result };
+    }
+    catch (err) {
+        if (err instanceof https_1.HttpsError)
+            throw err;
+        throw error_handler_1.ErrorHandler.handle(err, "distributePlatformLead");
     }
 });
 //# sourceMappingURL=index.js.map
