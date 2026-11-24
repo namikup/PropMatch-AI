@@ -157,7 +157,15 @@ describe("Phase 5.1 — Meta Ads Intelligence Service (Backend)", () => {
         adAccountName: "Penang Landed Campaigns",
         currency: "MYR",
         accessToken: "EAAB_SECRET_ACCESS_TOKEN_NOT_FOR_CLIENT",
-        grantedPermissions: ["ads_read", "leads_retrieval", "pages_read_engagement", "pages_manage_ads"]
+        grantedPermissions: [
+          "ads_read",
+          "ads_management",
+          "leads_retrieval",
+          "pages_manage_metadata",
+          "pages_manage_ads",
+          "pages_read_engagement",
+          "pages_show_list"
+        ]
       });
 
       // Check public connection document
@@ -185,6 +193,7 @@ describe("Phase 5.1 — Meta Ads Intelligence Service (Backend)", () => {
       });
 
       expect(connection.connectionStatus).toBe("Reauthorization Required");
+      expect(connection.missingPermissions).toContain("ads_management");
       expect(connection.missingPermissions).toContain("leads_retrieval");
       expect(connection.missingPermissions).toContain("pages_read_engagement");
     });
@@ -254,6 +263,230 @@ describe("Phase 5.1 — Meta Ads Intelligence Service (Backend)", () => {
       const res2 = await MetaAdsService.ingestMetaLead(pilotOwnerId, leadPayload);
       expect(res2.success).toBe(true);
       expect(res2.isDuplicate).toBe(true); // Suppressed as duplicate!
+    });
+  });
+
+  // =========================================================================
+  // 3B. BULK LEAD RETRIEVAL & PAGINATION (GET /{form_id}/leads)
+  // =========================================================================
+  describe("Bulk Lead Retrieval & Cursor-Based Pagination", () => {
+    it("fetches form leads with date filtering and cursor pagination", async () => {
+      const originalFetch = global.fetch;
+      const mockFetch = jest.fn().mockImplementation((url: string) => {
+        expect(url).toContain("https://graph.facebook.com/v26.0/form-bulk-123/leads");
+        expect(url).toContain("fields=id%2Ccreated_time");
+        expect(url).toContain("time_created");
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              data: [
+                {
+                  id: "leadgen-bulk-001",
+                  created_time: "2026-11-20T10:00:00+0000",
+                  ad_id: "ad-101",
+                  ad_name: "Astonia 4-Bed",
+                  form_id: "form-bulk-123",
+                  field_data: [
+                    { name: "full_name", values: ["Bulk Buyer 1"] },
+                    { name: "phone_number", values: ["012-9988776"] }
+                  ]
+                }
+              ],
+              paging: {
+                cursors: { after: "cursor_page_2" },
+                next: "https://graph.facebook.com/v26.0/form-bulk-123/leads?after=cursor_page_2"
+              }
+            })
+        });
+      });
+      global.fetch = mockFetch as any;
+
+      try {
+        const result = await MetaAdsService.fetchFormLeads("form-bulk-123", "EAAB_test_page_token", {
+          sinceTimestamp: 1732000000,
+          limit: 10
+        });
+
+        expect(result.leads.length).toBe(1);
+        expect(result.leads[0].leadgenId).toBe("leadgen-bulk-001");
+        expect(result.hasNextPage).toBe(true);
+        expect(result.nextCursor).toBe("cursor_page_2");
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it("syncFormLeads iterates pages and suppresses duplicates idempotently", async () => {
+      const originalFetch = global.fetch;
+      let callCount = 0;
+      const mockFetch = jest.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                data: [
+                  {
+                    id: "leadgen-page1-001",
+                    form_id: "form-bulk-456",
+                    field_data: [
+                      { name: "full_name", values: ["Page 1 Buyer"] },
+                      { name: "phone_number", values: ["019-1122334"] }
+                    ]
+                  }
+                ],
+                paging: {
+                  cursors: { after: "cursor_page_2" },
+                  next: "https://next-page"
+                }
+              })
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              data: [
+                {
+                  id: "leadgen-page2-002",
+                  form_id: "form-bulk-456",
+                  field_data: [
+                    { name: "full_name", values: ["Page 2 Buyer"] },
+                    { name: "phone_number", values: ["019-5566778"] }
+                  ]
+                }
+              ],
+              paging: { cursors: {} }
+            })
+        });
+      });
+      global.fetch = mockFetch as any;
+
+      try {
+        const syncResult = await MetaAdsService.syncFormLeads(pilotOwnerId, "form-bulk-456", "token", { maxPages: 2 });
+        expect(syncResult.totalFetched).toBe(2);
+        expect(syncResult.newIngested).toBe(2);
+        expect(syncResult.duplicatesSuppressed).toBe(0);
+
+        // Run sync again with same leads returned to test idempotency
+        callCount = 0;
+        const reSyncResult = await MetaAdsService.syncFormLeads(pilotOwnerId, "form-bulk-456", "token", { maxPages: 2 });
+        expect(reSyncResult.totalFetched).toBe(2);
+        expect(reSyncResult.newIngested).toBe(0);
+        expect(reSyncResult.duplicatesSuppressed).toBe(2); // Suppressed as duplicates!
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it("falls back gracefully to core fields when ad fields query fails (no ads_management)", async () => {
+      const originalFetch = global.fetch;
+      let queryAttempt = 0;
+      const mockFetch = jest.fn().mockImplementation((url: string) => {
+        queryAttempt++;
+        if (queryAttempt === 1) {
+          // First attempt with full ad fields fails because token lacks ads_management
+          expect(url).toContain("ad_id%2Cad_name");
+          return Promise.resolve({
+            ok: false,
+            status: 400,
+            text: () => Promise.resolve("(#200) Requires ads_management permission")
+          });
+        }
+        // Second attempt with core fields succeeds
+        expect(url).toContain("fields=id%2Ccreated_time%2Cform_id%2Cfield_data");
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              id: "leadgen-fallback-001",
+              created_time: "2026-11-20T10:00:00+0000",
+              form_id: "form-001",
+              field_data: [
+                { name: "full_name", values: ["Core Lead Buyer"] },
+                { name: "phone_number", values: ["012-7766554"] }
+              ]
+            })
+        });
+      });
+      global.fetch = mockFetch as any;
+
+      try {
+        const lead = await MetaAdsService.fetchLeadDetailsFromGraphApi("leadgen-fallback-001", "page_token");
+        expect(lead.leadgenId).toBe("leadgen-fallback-001");
+        expect(lead.fieldData.length).toBe(2);
+        expect(lead.fieldData[0].values[0]).toBe("Core Lead Buyer");
+        expect(lead.dataSource).toBe("PARTIAL_META_API");
+        expect(queryAttempt).toBe(2); // Verified fallback execution!
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it("rejects lead ingestion when fieldData is empty due to failed Meta authorization (does NOT create fake lead)", async () => {
+      const emptyPayload = {
+        leadgenId: "leadgen-empty-auth-failed",
+        formId: "form-001",
+        pageId: "page-123",
+        createdTime: Math.floor(Date.now() / 1000),
+        fieldData: [], // Empty because Meta API authorization failed or was missing
+        dataSource: "NOT_CONNECTED" as const
+      };
+
+      const result = await MetaAdsService.ingestMetaLead(pilotOwnerId, emptyPayload);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Missing lead field_data");
+
+      // Verify no prospect was fabricated in Firestore
+      const prospectDoc = await collections.prospects.doc("prospect_leadgen-empty-auth-failed").get();
+      expect(prospectDoc.exists).toBe(false);
+    });
+
+    it("throws an error when Graph API returns HTTP 401/403 and does not invent fake data", async () => {
+      const originalFetch = global.fetch;
+      const mockFetch = jest.fn().mockImplementation(() => {
+        return Promise.resolve({
+          ok: false,
+          status: 403,
+          text: () => Promise.resolve("(#10) Application does not have permission for this action")
+        });
+      });
+      global.fetch = mockFetch as any;
+
+      try {
+        await expect(
+          MetaAdsService.fetchLeadDetailsFromGraphApi("leadgen-forbidden-001", "bad_token")
+        ).rejects.toThrow("Meta Graph API error fetching leadgen_id leadgen-forbidden-001");
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it("preserves source attribution metadata and marks unverified placement as UNKNOWN", async () => {
+      const unverifiedPayload = {
+        leadgenId: "leadgen-unverified-001",
+        formId: "form-001",
+        pageId: "page-123",
+        createdTime: Math.floor(Date.now() / 1000),
+        fieldData: [
+          { name: "full_name", values: ["Unknown Placement Buyer"] },
+          { name: "phone_number", values: ["012-3344556"] }
+        ]
+      };
+
+      const result = await MetaAdsService.ingestMetaLead(pilotOwnerId, unverifiedPayload);
+      expect(result.success).toBe(true);
+
+      const storedIngested = await collections.metaIngestedLeads.doc("leadgen-unverified-001").get();
+      expect(storedIngested.exists).toBe(true);
+      expect(storedIngested.data()!.placement).toBe("UNKNOWN");
+      expect(storedIngested.data()!.acquisitionSourceConfidence).toBe("Unverified");
+
+      const storedProspect = await collections.prospects.doc(result.prospectId!).get();
+      expect(storedProspect.data()!.placement).toBe("UNKNOWN");
+      expect(storedProspect.data()!.acquisitionSourceConfidence).toBe("Unverified");
     });
   });
 

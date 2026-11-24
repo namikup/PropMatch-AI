@@ -941,6 +941,53 @@ export const generateMetaCampaignAIIntelligence = onCall(callOptions, async (req
 });
 
 /**
+ * Callable Function: List Meta Managed Assets (Phase 5.1A Meta Live Assets)
+ */
+export const listMetaAssets = onCall(callOptions, async (request) => {
+  const callerUid = AIRequestValidator.validateAuth(request.auth?.uid);
+  try {
+    const data = await MetaAdsService.listAssets(callerUid);
+    return { success: true, data };
+  } catch (err: unknown) {
+    if (err instanceof HttpsError) throw err;
+    throw ErrorHandler.handle(err, "listMetaAssets", { ownerId: callerUid });
+  }
+});
+
+/**
+ * Callable Function: Bulk Sync Meta Form Leads (Phase 5.1A.3 Bulk Retrieval)
+ * Queries /{form_id}/leads with pagination and date filtering, backfilling missed leads.
+ */
+export const syncMetaFormLeads = onCall(callOptions, async (request) => {
+  const callerUid = AIRequestValidator.validateAuth(request.auth?.uid);
+  const formId = request.data?.formId;
+  const pageId = request.data?.pageId;
+  const sinceTimestamp = typeof request.data?.sinceTimestamp === "number" ? request.data.sinceTimestamp : undefined;
+
+  if (!formId || typeof formId !== "string") {
+    throw new HttpsError("invalid-argument", "Missing required formId.");
+  }
+
+  try {
+    const credDoc = await collections.privateMetaCredentials.doc(callerUid).get();
+    if (!credDoc.exists) {
+      throw new HttpsError("failed-precondition", "Meta account is not connected.");
+    }
+    const creds = credDoc.data();
+    const pageToken = (pageId && creds?.pageAccessTokens?.[pageId]) || creds?.accessToken;
+    if (!pageToken) {
+      throw new HttpsError("failed-precondition", "No valid access token available for Page.");
+    }
+
+    const result = await MetaAdsService.syncFormLeads(callerUid, formId, pageToken, { sinceTimestamp });
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    if (err instanceof HttpsError) throw err;
+    throw ErrorHandler.handle(err, "syncMetaFormLeads", { ownerId: callerUid });
+  }
+});
+
+/**
  * HTTP Webhook Handler: Meta Webhook for Lead Ads (Phase 5.1 Meta Ads Intelligence)
  * Supports GET subscription verification and POST leadgen event reception with HMAC verification.
  */
@@ -959,7 +1006,9 @@ export const metaWebhookHandler = onRequest(
         res.status(200).send(challenge);
         return;
       } else {
-        Logger.warn("Meta Webhook verification failed: invalid token", { receivedToken: token });
+        Logger.warn("Meta Webhook verification failed: invalid token", {
+          receivedLength: typeof token === "string" ? token.length : 0
+        });
         res.status(403).send("Forbidden: Invalid verification token");
         return;
       }
@@ -999,9 +1048,68 @@ export const metaWebhookHandler = onRequest(
                   .limit(1)
                   .get();
 
-                const ownerId = pageOwnerSnap.empty
-                  ? "pilot-agent-malik-001" // Default to designated pilot agent in pilot mode
-                  : pageOwnerSnap.docs[0].id;
+                let ownerId = "";
+                if (!pageOwnerSnap.empty) {
+                  ownerId = pageOwnerSnap.docs[0].id;
+                } else if (process.env.TEST_AGENT_ID) {
+                  // Fall back to explicitly configured local test agent in emulator testing
+                  ownerId = process.env.TEST_AGENT_ID;
+                } else {
+                  Logger.warn("Meta Webhook: Unmapped Facebook Page ID; no matching agent connection found in meta_connections", {
+                    pageId,
+                    leadgenId
+                  });
+                  continue; // Reject unmapped Pages to prevent accidental cross-agent attribution
+                }
+
+                let fieldData = leadData.field_data || [];
+                let leadDataSource: 'REAL_META_API' | 'PARTIAL_META_API' | 'MOCK_SIMULATED' | 'NOT_CONNECTED' = 'REAL_META_API';
+                let fetchFailed = false;
+                let fetchErrorMessage = "";
+
+                if (fieldData.length === 0) {
+                  try {
+                    const credDoc = await collections.privateMetaCredentials.doc(ownerId).get();
+                    if (credDoc.exists) {
+                      const creds = credDoc.data();
+                      const pageToken = creds?.pageAccessTokens?.[pageId] || creds?.accessToken;
+                      if (pageToken && !pageToken.includes("SECRET_ACCESS_TOKEN")) {
+                        const liveLead = await MetaAdsService.fetchLeadDetailsFromGraphApi(leadgenId, pageToken);
+                        fieldData = liveLead.fieldData;
+                        leadDataSource = liveLead.dataSource || 'REAL_META_API';
+                      } else {
+                        leadDataSource = pageToken?.includes("SECRET_ACCESS_TOKEN") ? 'MOCK_SIMULATED' : 'NOT_CONNECTED';
+                      }
+                    } else {
+                      leadDataSource = 'NOT_CONNECTED';
+                    }
+                  } catch (fetchErr) {
+                    fetchFailed = true;
+                    fetchErrorMessage = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+                    Logger.error("Graph API lead fetch failed due to permission or authorization error", fetchErr, { leadgenId, ownerId });
+                  }
+                }
+
+                // If lead retrieval failed or no answers could be retrieved, do NOT create fake successful leads
+                if (fetchFailed || (fieldData.length === 0 && leadDataSource === 'NOT_CONNECTED')) {
+                  Logger.warn("Suppressing lead prospect creation due to failed Meta authorization or missing credentials", {
+                    leadgenId,
+                    ownerId,
+                    error: fetchErrorMessage
+                  });
+                  await collections.metaSyncLogs.add({
+                    ownerId,
+                    leadgenId,
+                    status: "Authorization Failed",
+                    error: fetchErrorMessage || "Meta access token invalid, expired, or missing required permissions",
+                    timestamp: new Date().toISOString()
+                  });
+                  await collections.metaConnections.doc(ownerId).update({
+                    lastSyncError: fetchErrorMessage || "Failed to retrieve lead questionnaire data from Meta Graph API",
+                    connectionStatus: "Reauthorization Required"
+                  });
+                  continue;
+                }
 
                 await MetaAdsService.ingestMetaLead(ownerId, {
                   leadgenId,
@@ -1010,7 +1118,14 @@ export const metaWebhookHandler = onRequest(
                   adId,
                   campaignId,
                   createdTime,
-                  fieldData: leadData.field_data || []
+                  fieldData,
+                  dataSource: leadDataSource,
+                  rawMetadata: {
+                    webhookEntryId: entry.id,
+                    webhookTime: entry.time,
+                    webhookField: change.field,
+                    rawLeadData: leadData
+                  }
                 });
               }
             }

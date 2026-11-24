@@ -10,6 +10,8 @@ export interface MetaConnectionConfig {
   adAccountId: string; // e.g. act_492019482910
   adAccountName: string;
   currency: string; // MYR
+  timezone?: string; // e.g. Asia/Kuala_Lumpur
+  dataSource?: 'REAL_META_API' | 'PARTIAL_META_API' | 'MOCK_SIMULATED' | 'NOT_CONNECTED';
   isConnected: boolean;
   connectionStatus: 'Connected' | 'Disconnected' | 'Reauthorization Required' | 'Error';
   grantedPermissions: string[];
@@ -76,6 +78,7 @@ export interface MetaCampaignSummary {
   campaignName: string;
   status: 'ACTIVE' | 'PAUSED' | 'ARCHIVED' | 'COMPLETED';
   objective: string;
+  dataSource?: 'REAL_META_API' | 'PARTIAL_META_API' | 'MOCK_SIMULATED' | 'NOT_CONNECTED';
   dailyBudget?: number;
   lifetimeBudget?: number;
   spend: number;
@@ -112,6 +115,12 @@ export interface MetaLeadPayload {
   createdTime: number; // Unix timestamp
   fieldData: MetaLeadFieldData[];
   isOrganic?: boolean;
+  referralSource?: string;
+  platform?: string;
+  placement?: string;
+  acquisitionSourceConfidence?: 'Verified' | 'Inferred' | 'Unverified';
+  rawMetadata?: Record<string, unknown>;
+  dataSource?: 'REAL_META_API' | 'PARTIAL_META_API' | 'MOCK_SIMULATED' | 'NOT_CONNECTED';
 }
 
 export interface MetaAICampaignInsight {

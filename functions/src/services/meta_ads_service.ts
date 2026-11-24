@@ -13,8 +13,33 @@ import {
 import { LeadIngestionService, RawEnquiryInput } from "./lead_ingestion_service";
 import { GeminiService } from "./gemini_service";
 import { getGeminiConfig } from "../config/gemini.config";
+import {
+  META_GRAPH_API_VERSION,
+  META_MARKETING_API_VERSION,
+  META_GRAPH_API_BASE,
+  META_MARKETING_API_BASE,
+  META_GRAPH_VERSION,
+  META_GRAPH_BASE
+} from "../config/meta.config";
+
+// Re-export central version constants for backwards compatibility
+export {
+  META_GRAPH_API_VERSION,
+  META_MARKETING_API_VERSION,
+  META_GRAPH_API_BASE,
+  META_MARKETING_API_BASE,
+  META_GRAPH_VERSION,
+  META_GRAPH_BASE
+};
 
 export class MetaAdsService {
+  /**
+   * Meta API constants for live advertising integration.
+   */
+  static readonly GRAPH_API_VERSION = META_GRAPH_API_VERSION;
+  static readonly MARKETING_API_VERSION = META_MARKETING_API_VERSION;
+  static readonly GRAPH_API_BASE = META_GRAPH_API_BASE;
+  static readonly MARKETING_API_BASE = META_MARKETING_API_BASE;
   /**
    * Retrieves public Meta connection configuration for an agent.
    * Never exposes raw access tokens or client secrets.
@@ -38,9 +63,12 @@ export class MetaAdsService {
         grantedPermissions: [],
         missingPermissions: [
           "ads_read",
+          "ads_management",
           "leads_retrieval",
+          "pages_manage_metadata",
+          "pages_manage_ads",
           "pages_read_engagement",
-          "pages_manage_ads"
+          "pages_show_list"
         ],
         isTokenExpired: false,
         requiresAppReview: true,
@@ -74,7 +102,11 @@ export class MetaAdsService {
       const decoded = JSON.parse(Buffer.from(stateString, "base64url").toString("utf-8"));
       const { payload, hmac } = decoded;
       const expectedHmac = crypto.createHmac("sha256", secretKey).update(payload).digest("hex");
-      if (hmac !== expectedHmac) return false;
+      const hmacBuffer = Buffer.from(hmac, "hex");
+      const expectedBuffer = Buffer.from(expectedHmac, "hex");
+      if (hmacBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(hmacBuffer, expectedBuffer)) {
+        return false;
+      }
 
       const data = JSON.parse(payload);
       if (data.ownerId !== expectedOwnerId) return false;
@@ -115,18 +147,505 @@ export class MetaAdsService {
   }
 
   /**
+   * Exchanges an OAuth authorization code for a long-lived user access token (~60 days).
+   */
+  static async exchangeCodeForLongLivedToken(params: {
+    code: string;
+    redirectUri: string;
+    clientId: string;
+    clientSecret: string;
+  }): Promise<{ accessToken: string; expiresInSeconds: number; tokenType: string }> {
+    // 1. Exchange code for short-lived token
+    const tokenUrl = `${META_GRAPH_BASE}/oauth/access_token?` +
+      new URLSearchParams({
+        client_id: params.clientId,
+        redirect_uri: params.redirectUri,
+        client_secret: params.clientSecret,
+        code: params.code
+      }).toString();
+
+    const shortLivedRes = await fetch(tokenUrl);
+    if (!shortLivedRes.ok) {
+      const errBody = await shortLivedRes.text();
+      throw new Error(`Failed to exchange Meta OAuth code: HTTP ${shortLivedRes.status} - ${errBody}`);
+    }
+    const shortLivedData = (await shortLivedRes.json()) as any;
+    const shortToken = shortLivedData.access_token;
+
+    // 2. Exchange short-lived token for long-lived user token (~60 days)
+    const longLivedUrl = `${META_GRAPH_BASE}/oauth/access_token?` +
+      new URLSearchParams({
+        grant_type: "fb_exchange_token",
+        client_id: params.clientId,
+        client_secret: params.clientSecret,
+        fb_exchange_token: shortToken
+      }).toString();
+
+    const longLivedRes = await fetch(longLivedUrl);
+    if (!longLivedRes.ok) {
+      return {
+        accessToken: shortToken,
+        expiresInSeconds: shortLivedData.expires_in || 3600,
+        tokenType: shortLivedData.token_type || "bearer"
+      };
+    }
+
+    const longLivedData = (await longLivedRes.json()) as any;
+    return {
+      accessToken: longLivedData.access_token,
+      expiresInSeconds: longLivedData.expires_in || 60 * 24 * 3600,
+      tokenType: longLivedData.token_type || "bearer"
+    };
+  }
+
+  /**
+   * Inspects and validates a Meta access token using the debug_token endpoint.
+   */
+  static async inspectToken(inputToken: string, appAccessToken: string): Promise<{
+    isValid: boolean;
+    appId?: string;
+    userId?: string;
+    scopes: string[];
+    expiresAt?: number;
+    error?: string;
+  }> {
+    const url = `${META_GRAPH_BASE}/debug_token?` +
+      new URLSearchParams({
+        input_token: inputToken,
+        access_token: appAccessToken
+      }).toString();
+
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        return { isValid: false, scopes: [], error: `HTTP ${res.status}` };
+      }
+      const json = (await res.json()) as any;
+      const data = json.data;
+      return {
+        isValid: data?.is_valid === true,
+        appId: data?.app_id,
+        userId: data?.user_id,
+        scopes: data?.scopes || [],
+        expiresAt: data?.expires_at ? data.expires_at * 1000 : undefined
+      };
+    } catch (e: any) {
+      return { isValid: false, scopes: [], error: e.message };
+    }
+  }
+
+  /**
+   * Fetches Facebook Pages managed by the agent, including Page Access Tokens.
+   */
+  static async fetchUserPages(userAccessToken: string): Promise<Array<{
+    id: string;
+    name: string;
+    accessToken: string;
+    category?: string;
+    tasks?: string[];
+  }>> {
+    const url = `${META_GRAPH_BASE}/me/accounts?` +
+      new URLSearchParams({
+        fields: "id,name,access_token,category,tasks",
+        access_token: userAccessToken
+      }).toString();
+
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch Meta Pages: HTTP ${res.status}`);
+    }
+    const json = (await res.json()) as any;
+    return (json.data || []).map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      accessToken: item.access_token,
+      category: item.category,
+      tasks: item.tasks || []
+    }));
+  }
+
+  /**
+   * Fetches Advertising Accounts the agent has access to via Marketing API.
+   */
+  static async fetchUserAdAccounts(userAccessToken: string): Promise<Array<{
+    id: string;
+    name: string;
+    accountId: string;
+    currency: string;
+    timezone: string;
+    accountStatus: number;
+  }>> {
+    const url = `${META_MARKETING_API_BASE}/me/adaccounts?` +
+      new URLSearchParams({
+        fields: "id,name,account_id,currency,timezone_name,account_status",
+        access_token: userAccessToken
+      }).toString();
+
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch Meta Ad Accounts: HTTP ${res.status}`);
+    }
+    const json = (await res.json()) as any;
+    return (json.data || []).map((item: any) => ({
+      id: item.id,
+      name: item.name || `Ad Account ${item.account_id}`,
+      accountId: item.account_id,
+      currency: item.currency || "MYR",
+      timezone: item.timezone_name || "Asia/Kuala_Lumpur",
+      accountStatus: item.account_status || 1
+    }));
+  }
+
+  /**
+   * Subscribes a Facebook Page to the App's Webhooks for the 'leadgen' field.
+   */
+  static async subscribePageToWebhook(pageId: string, pageAccessToken: string): Promise<boolean> {
+    try {
+      const url = `${META_GRAPH_BASE}/${pageId}/subscribed_apps`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          subscribed_fields: "leadgen",
+          access_token: pageAccessToken
+        })
+      });
+      if (!res.ok) {
+        Logger.warn("Failed to subscribe Page to leadgen webhook", { pageId, status: res.status });
+        return false;
+      }
+      const json = (await res.json()) as any;
+      return json.success === true;
+    } catch (e) {
+      Logger.warn("Exception during page webhook subscription", { pageId, error: e });
+      return false;
+    }
+  }
+
+  /**
+   * Retrieves full lead details from Meta Graph API /{leadgen_id} using Page Access Token.
+   */
+  static async fetchLeadDetailsFromGraphApi(
+    leadgenId: string,
+    pageAccessToken: string
+  ): Promise<MetaLeadPayload> {
+    const fullFields = "id,created_time,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,form_id,field_data";
+    const url = `${META_GRAPH_BASE}/${leadgenId}?` +
+      new URLSearchParams({
+        fields: fullFields,
+        access_token: pageAccessToken
+      }).toString();
+
+    let res = await fetch(url);
+    let resolvedDataSource: 'REAL_META_API' | 'PARTIAL_META_API' = 'REAL_META_API';
+
+    if (!res.ok) {
+      // Fallback: If ad fields failed (Meta requires ads_management for ad_id/campaign_id on leadgen node),
+      // retry with core fields which require only leads_retrieval + page permissions
+      const coreFields = "id,created_time,form_id,field_data";
+      const fallbackUrl = `${META_GRAPH_BASE}/${leadgenId}?` +
+        new URLSearchParams({
+          fields: coreFields,
+          access_token: pageAccessToken
+        }).toString();
+
+      const fallbackRes = await fetch(fallbackUrl);
+      if (fallbackRes.ok) {
+        res = fallbackRes;
+        resolvedDataSource = 'PARTIAL_META_API';
+        Logger.info("Retrieved lead details using core lead fields fallback (partial metadata)", { leadgenId });
+      } else {
+        const primaryErr = `HTTP ${res.status}`;
+        const fallbackErr = `Fallback HTTP ${fallbackRes.status}`;
+        throw new Error(`Meta Graph API error fetching leadgen_id ${leadgenId}: ${primaryErr} (${fallbackErr})`);
+      }
+    }
+
+    const data = (await res.json()) as any;
+    return {
+      leadgenId: data.id || leadgenId,
+      formId: data.form_id || "",
+      pageId: "",
+      adId: data.ad_id,
+      adName: data.ad_name,
+      adSetId: data.adset_id,
+      campaignId: data.campaign_id,
+      campaignName: data.campaign_name,
+      createdTime: data.created_time ? Math.floor(new Date(data.created_time).getTime() / 1000) : Math.floor(Date.now() / 1000),
+      fieldData: (data.field_data || []).map((f: any) => ({
+        name: f.name,
+        values: f.values || []
+      })),
+      dataSource: resolvedDataSource
+    };
+  }
+
+  /**
+   * Bulk retrieves leads for a specific Meta Instant Form (/{form_id}/leads).
+   * Supports cursor-based pagination and date filtering (time_created).
+   */
+  static async fetchFormLeads(
+    formId: string,
+    pageAccessToken: string,
+    options?: {
+      limit?: number;
+      sinceTimestamp?: number; // Unix timestamp in seconds
+      afterCursor?: string;
+    }
+  ): Promise<{
+    leads: MetaLeadPayload[];
+    nextCursor?: string;
+    hasNextPage: boolean;
+  }> {
+    const fullFields = "id,created_time,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,form_id,field_data";
+    const params: Record<string, string> = {
+      fields: fullFields,
+      access_token: pageAccessToken,
+      limit: String(options?.limit || 25)
+    };
+
+    if (options?.sinceTimestamp) {
+      params.filtering = JSON.stringify([
+        { field: "time_created", operator: "GREATER_THAN", value: options.sinceTimestamp }
+      ]);
+    }
+
+    if (options?.afterCursor) {
+      params.after = options.afterCursor;
+    }
+
+    const url = `${META_GRAPH_BASE}/${formId}/leads?` + new URLSearchParams(params).toString();
+    let res = await fetch(url);
+    let resolvedDataSource: 'REAL_META_API' | 'PARTIAL_META_API' = 'REAL_META_API';
+    if (!res.ok) {
+      // Fallback: If ad fields failed, retry with core fields
+      params.fields = "id,created_time,form_id,field_data";
+      const fallbackUrl = `${META_GRAPH_BASE}/${formId}/leads?` + new URLSearchParams(params).toString();
+      const fallbackRes = await fetch(fallbackUrl);
+      if (fallbackRes.ok) {
+        res = fallbackRes;
+        resolvedDataSource = 'PARTIAL_META_API';
+        Logger.info("Retrieved form leads using core fields fallback (partial metadata)", { formId });
+      } else {
+        throw new Error(`Meta Graph API error fetching leads for form ${formId}: HTTP ${res.status}`);
+      }
+    }
+
+    const json = (await res.json()) as any;
+    const leads: MetaLeadPayload[] = (json.data || []).map((item: any) => ({
+      leadgenId: item.id,
+      formId: item.form_id || formId,
+      pageId: "",
+      adId: item.ad_id,
+      adName: item.ad_name,
+      adSetId: item.adset_id,
+      campaignId: item.campaign_id,
+      campaignName: item.campaign_name,
+      createdTime: item.created_time ? Math.floor(new Date(item.created_time).getTime() / 1000) : Math.floor(Date.now() / 1000),
+      fieldData: (item.field_data || []).map((f: any) => ({
+        name: f.name,
+        values: f.values || []
+      })),
+      dataSource: resolvedDataSource
+    }));
+
+    return {
+      leads,
+      nextCursor: json.paging?.cursors?.after,
+      hasNextPage: Boolean(json.paging?.next)
+    };
+  }
+
+  /**
+   * Bulk syncs and ingests leads from a Meta Instant Form, backfilling any missed submissions.
+   */
+  static async syncFormLeads(
+    ownerId: string,
+    formId: string,
+    pageAccessToken: string,
+    options?: { sinceTimestamp?: number; maxPages?: number }
+  ): Promise<{ totalFetched: number; newIngested: number; duplicatesSuppressed: number }> {
+    let totalFetched = 0;
+    let newIngested = 0;
+    let duplicatesSuppressed = 0;
+    let currentCursor: string | undefined = undefined;
+    let pagesProcessed = 0;
+    const maxPages = options?.maxPages || 5;
+
+    while (pagesProcessed < maxPages) {
+      pagesProcessed++;
+      const result = await this.fetchFormLeads(formId, pageAccessToken, {
+        sinceTimestamp: options?.sinceTimestamp,
+        afterCursor: currentCursor,
+        limit: 25
+      });
+
+      totalFetched += result.leads.length;
+      for (const lead of result.leads) {
+        const ingestRes = await this.ingestMetaLead(ownerId, lead);
+        if (ingestRes.isDuplicate) {
+          duplicatesSuppressed++;
+        } else if (ingestRes.success) {
+          newIngested++;
+        }
+      }
+
+      if (!result.hasNextPage || !result.nextCursor) {
+        break;
+      }
+      currentCursor = result.nextCursor;
+    }
+
+    return { totalFetched, newIngested, duplicatesSuppressed };
+  }
+
+  /**
+   * Fetches real live campaigns and advertising insights from Meta Marketing API.
+   */
+  static async fetchLiveCampaignsFromGraphApi(
+    adAccountId: string,
+    userAccessToken: string
+  ): Promise<MetaCampaignSummary[]> {
+    const formattedAdAccountId = adAccountId.startsWith("act_") ? adAccountId : `act_${adAccountId}`;
+
+    const campUrl = `${META_MARKETING_API_BASE}/${formattedAdAccountId}/campaigns?` +
+      new URLSearchParams({
+        fields: "id,name,status,objective,daily_budget,lifetime_budget,start_time,stop_time",
+        access_token: userAccessToken,
+        limit: "25"
+      }).toString();
+
+    const campRes = await fetch(campUrl);
+    if (!campRes.ok) {
+      throw new Error(`Meta Marketing API campaigns error: HTTP ${campRes.status}`);
+    }
+    const campJson = (await campRes.json()) as any;
+    const rawCampaigns = campJson.data || [];
+
+    const insightUrl = `${META_MARKETING_API_BASE}/${formattedAdAccountId}/insights?` +
+      new URLSearchParams({
+        fields: "campaign_id,campaign_name,spend,impressions,reach,clicks,ctr,cpc,cpm,actions,date_start,date_stop",
+        date_preset: "maximum",
+        level: "campaign",
+        access_token: userAccessToken,
+        limit: "50"
+      }).toString();
+
+    let insightsMap: Record<string, any> = {};
+    try {
+      const insightRes = await fetch(insightUrl);
+      if (insightRes.ok) {
+        const insightJson = (await insightRes.json()) as any;
+        for (const item of insightJson.data || []) {
+          insightsMap[item.campaign_id] = item;
+        }
+      }
+    } catch (_) {}
+
+    return rawCampaigns.map((c: any) => {
+      const ins = insightsMap[c.id] || {};
+      const spend = parseFloat(ins.spend || "0");
+      const impressions = parseInt(ins.impressions || "0", 10);
+      const reach = parseInt(ins.reach || "0", 10);
+      const clicks = parseInt(ins.clicks || "0", 10);
+      const ctr = impressions > 0 ? parseFloat(((clicks / impressions) * 100).toFixed(2)) : 0;
+      const cpc = clicks > 0 ? parseFloat((spend / clicks).toFixed(2)) : 0;
+      const cpm = impressions > 0 ? parseFloat(((spend / impressions) * 1000).toFixed(2)) : 0;
+
+      let leads = 0;
+      if (Array.isArray(ins.actions)) {
+        const leadAction = ins.actions.find((a: any) => a.action_type === "lead" || a.action_type === "onsite_conversion.lead_grouped");
+        if (leadAction) {
+          leads = parseInt(leadAction.value || "0", 10);
+        }
+      }
+      const costPerLead = leads > 0 ? parseFloat((spend / leads).toFixed(2)) : 0;
+
+      return {
+        id: `meta_${c.id}`,
+        ownerId: "",
+        campaignId: c.id,
+        campaignName: c.name,
+        status: c.status || "ACTIVE",
+        objective: c.objective || "OUTCOME_LEADS",
+        dataSource: "REAL_META_API",
+        dailyBudget: c.daily_budget ? parseFloat(c.daily_budget) / 100 : undefined,
+        lifetimeBudget: c.lifetime_budget ? parseFloat(c.lifetime_budget) / 100 : undefined,
+        spend,
+        impressions,
+        reach,
+        clicks,
+        ctr,
+        cpc,
+        cpm,
+        leads,
+        costPerLead,
+        dateStart: c.start_time ? c.start_time.split("T")[0] : "",
+        dateStop: c.stop_time ? c.stop_time.split("T")[0] : "",
+        qualityMetrics: {
+          totalLeads: leads,
+          validContactableLeads: 0,
+          qualifiedProspects: 0,
+          matchedListingCount: 0,
+          viewingAppointments: 0,
+          convertedBuyers: 0,
+          costPerQualifiedBuyer: null,
+          costPerViewingAppointment: null,
+          qualificationRate: 0.0
+        },
+        adSets: [],
+        ads: [],
+        updatedAt: new Date().toISOString()
+      };
+    });
+  }
+
+  /**
+   * Lists available Pages and Ad Accounts for an authenticated agent.
+   */
+  static async listAssets(ownerId: string): Promise<{
+    pages: Array<{ id: string; name: string }>;
+    adAccounts: Array<{ id: string; name: string; currency: string }>;
+  }> {
+    const credDoc = await collections.privateMetaCredentials.doc(ownerId).get();
+    if (!credDoc.exists) {
+      return { pages: [], adAccounts: [] };
+    }
+    const token = credDoc.data()?.accessToken;
+    if (!token) return { pages: [], adAccounts: [] };
+
+    try {
+      const [pages, adAccounts] = await Promise.all([
+        this.fetchUserPages(token),
+        this.fetchUserAdAccounts(token)
+      ]);
+      return {
+        pages: pages.map((p) => ({ id: p.id, name: p.name })),
+        adAccounts: adAccounts.map((a) => ({ id: a.id, name: a.name, currency: a.currency }))
+      };
+    } catch (_) {
+      return { pages: [], adAccounts: [] };
+    }
+  }
+
+  /**
    * Connects or updates a Meta advertising account for the pilot agent.
    * Securely stores tokens in _private_meta_credentials, accessible only to backend server.
    */
   static async connectAccount(
     ownerId: string,
     params: {
-      facebookPageId: string;
-      facebookPageName: string;
-      adAccountId: string;
-      adAccountName: string;
+      facebookPageId?: string;
+      facebookPageName?: string;
+      adAccountId?: string;
+      adAccountName?: string;
       currency?: string;
-      accessToken: string;
+      accessToken?: string;
+      code?: string;
+      redirectUri?: string;
+      clientId?: string;
+      clientSecret?: string;
+      pageAccessTokens?: Record<string, string>;
       grantedPermissions?: string[];
       expiresInSeconds?: number;
     }
@@ -135,36 +654,103 @@ export class MetaAdsService {
       throw new HttpsError("invalid-argument", "Missing ownerId.");
     }
 
+    let token = params.accessToken || "";
+    let expiresIn = params.expiresInSeconds || 60 * 24 * 3600;
+    const pageTokens: Record<string, string> = { ...(params.pageAccessTokens || {}) };
+
+    // 1. If OAuth code is provided, exchange for long-lived access token
+    if (params.code && params.clientId && params.clientSecret && params.redirectUri) {
+      const exchangeResult = await this.exchangeCodeForLongLivedToken({
+        code: params.code,
+        redirectUri: params.redirectUri,
+        clientId: params.clientId,
+        clientSecret: params.clientSecret
+      });
+      token = exchangeResult.accessToken;
+      expiresIn = exchangeResult.expiresInSeconds;
+    }
+
+    if (!token) {
+      throw new HttpsError("invalid-argument", "Missing accessToken or valid OAuth authorization code.");
+    }
+
+    let pageId = params.facebookPageId || "";
+    let pageName = params.facebookPageName || "";
+    let adAccountId = params.adAccountId || "";
+    let adAccountName = params.adAccountName || "";
+    let currency = params.currency || "MYR";
+    let timezone = "Asia/Kuala_Lumpur";
+
+    // 2. Auto-discover Pages and Ad Accounts if not explicitly supplied
+    if (!pageId || !adAccountId) {
+      try {
+        const [pages, accounts] = await Promise.all([
+          this.fetchUserPages(token),
+          this.fetchUserAdAccounts(token)
+        ]);
+
+        if (pages.length > 0 && !pageId) {
+          pageId = pages[0].id;
+          pageName = pages[0].name;
+          for (const p of pages) {
+            pageTokens[p.id] = p.accessToken;
+          }
+        }
+
+        if (accounts.length > 0 && !adAccountId) {
+          adAccountId = accounts[0].id;
+          adAccountName = accounts[0].name;
+          currency = accounts[0].currency;
+          timezone = accounts[0].timezone || "Asia/Kuala_Lumpur";
+        }
+      } catch (discErr) {
+        Logger.warn("Auto-discovery of Pages/AdAccounts skipped or failed", { error: discErr });
+      }
+    }
+
+    // 3. Attempt webhook subscription for Page if Page Token is available
+    if (pageId && pageTokens[pageId]) {
+      await this.subscribePageToWebhook(pageId, pageTokens[pageId]);
+    }
+
     const standardPermissions = [
       "ads_read",
+      "ads_management",
       "leads_retrieval",
+      "pages_manage_metadata",
+      "pages_manage_ads",
       "pages_read_engagement",
-      "pages_manage_ads"
+      "pages_show_list"
     ];
     const granted = params.grantedPermissions || standardPermissions;
     const missing = standardPermissions.filter((p) => !granted.includes(p));
 
-    const expiresAt = Date.now() + (params.expiresInSeconds || 60 * 24 * 3600) * 1000;
+    const expiresAt = Date.now() + expiresIn * 1000;
 
-    // 1. Save sensitive tokens in private server-only collection
+    // 4. Save sensitive tokens in private server-only collection
     const secureCreds: MetaSecureCredentials = {
       ownerId,
-      accessToken: params.accessToken,
+      accessToken: token,
       tokenType: "user",
       scope: granted,
       expiresAt,
+      pageAccessTokens: pageTokens,
       updatedAt: new Date().toISOString()
     };
     await collections.privateMetaCredentials.doc(ownerId).set(secureCreds);
 
-    // 2. Save public connection config
+    const isSimulated = token.includes("SECRET_ACCESS_TOKEN") || token.includes("mock") || token.includes("test");
+
+    // 5. Save public connection config
     const connectionConfig: MetaConnectionConfig = {
       ownerId,
-      facebookPageId: params.facebookPageId,
-      facebookPageName: params.facebookPageName,
-      adAccountId: params.adAccountId.startsWith("act_") ? params.adAccountId : `act_${params.adAccountId}`,
-      adAccountName: params.adAccountName,
-      currency: params.currency || "MYR",
+      facebookPageId: pageId,
+      facebookPageName: pageName,
+      adAccountId: adAccountId.startsWith("act_") ? adAccountId : (adAccountId ? `act_${adAccountId}` : ""),
+      adAccountName: adAccountName,
+      currency,
+      timezone,
+      dataSource: isSimulated ? "MOCK_SIMULATED" : "REAL_META_API",
       isConnected: true,
       connectionStatus: missing.length === 0 ? "Connected" : "Reauthorization Required",
       grantedPermissions: granted,
@@ -204,7 +790,15 @@ export class MetaAdsService {
       isConnected: false,
       connectionStatus: "Disconnected",
       grantedPermissions: [],
-      missingPermissions: ["ads_read", "leads_retrieval", "pages_read_engagement", "pages_manage_ads"],
+      missingPermissions: [
+        "ads_read",
+        "ads_management",
+        "leads_retrieval",
+        "pages_manage_metadata",
+        "pages_manage_ads",
+        "pages_read_engagement",
+        "pages_show_list"
+      ],
       isTokenExpired: false,
       requiresAppReview: true,
       updatedAt: new Date().toISOString()
@@ -230,8 +824,33 @@ export class MetaAdsService {
       throw new HttpsError("failed-precondition", "Meta account is not connected.");
     }
 
-    // In local development / mock verification mode, use realistic campaign data for Malik Tan
-    const campaignsToProcess = mockCampaigns || this.getPilotCampaignData(ownerId);
+    // In live production, fetch real campaigns from Meta Marketing API if credentials exist
+    let campaignsToProcess = mockCampaigns;
+    if (!campaignsToProcess) {
+      try {
+        const credDoc = await collections.privateMetaCredentials.doc(ownerId).get();
+        if (credDoc.exists && credDoc.data()?.accessToken && connection.adAccountId) {
+          const live = await this.fetchLiveCampaignsFromGraphApi(
+            connection.adAccountId,
+            credDoc.data()!.accessToken
+          );
+          if (live && live.length > 0) {
+            campaignsToProcess = live;
+            Logger.info("Fetched live Meta campaigns via Marketing API", {
+              ownerId,
+              count: live.length,
+              adAccountId: connection.adAccountId
+            });
+          }
+        }
+      } catch (liveErr) {
+        Logger.warn("Live Meta Graph API campaign fetch skipped or failed; falling back to pilot dataset", { error: liveErr });
+      }
+    }
+
+    if (!campaignsToProcess) {
+      campaignsToProcess = this.getPilotCampaignData(ownerId);
+    }
 
     // Compute Buyer Quality Metrics for each campaign from Firestore prospects and buyers
     const enrichedCampaigns: MetaCampaignSummary[] = [];
@@ -383,6 +1002,22 @@ export class MetaAdsService {
       };
     }
 
+    // 1B. Validate that questionnaire fieldData was actually retrieved (Prevent fake leads)
+    if (!payload.fieldData || payload.fieldData.length === 0) {
+      Logger.warn("Meta lead ingestion rejected: fieldData is empty. Cannot create fake prospect.", {
+        leadgenId: payload.leadgenId,
+        ownerId,
+        dataSource: payload.dataSource || "NOT_CONNECTED"
+      });
+      return {
+        success: false,
+        isDuplicate: false,
+        error: "Missing lead field_data: customer questionnaire answers could not be retrieved from Meta API."
+      };
+    }
+
+    const resolvedDataSource = payload.dataSource || (payload.isOrganic ? "REAL_META_API" : "MOCK_SIMULATED");
+
     // 2. Extract standard and custom field data from Meta Instant Form
     const fieldMap: Record<string, string> = {};
     for (const field of payload.fieldData || []) {
@@ -405,29 +1040,68 @@ export class MetaAdsService {
       budgetMax = parsed < 1000 ? parsed * 1000 : parsed;
     }
 
+    // Source & Placement Attribution Audit (Objective 2)
+    // Real Meta webhook payloads do NOT contain placement fields.
+    // If placement cannot be verified through dedicated ad metadata, it is stored as "UNKNOWN"
+    // rather than guessing or fabricating assumptions.
+    let placement = payload.placement || "UNKNOWN";
+    let acquisitionSourceConfidence: 'Verified' | 'Inferred' | 'Unverified' = payload.acquisitionSourceConfidence || "Unverified";
+    let detectedSourceType = "Meta Lead Ads";
+    let detectedUtmSource = "meta_lead_ad";
+
+    if (payload.platform === "instagram" || (payload.adName && /instagram|ig[_\s]/i.test(payload.adName)) || (payload.referralSource && /instagram/i.test(payload.referralSource))) {
+      detectedSourceType = "Instagram Lead Ads";
+      detectedUtmSource = "instagram";
+      acquisitionSourceConfidence = payload.placement ? "Verified" : "Inferred";
+      if (!payload.placement) placement = "Instagram (Unverified Placement)";
+    } else if (payload.platform === "facebook" || (payload.adName && /facebook|fb[_\s]/i.test(payload.adName))) {
+      detectedSourceType = "Facebook Lead Ads";
+      detectedUtmSource = "facebook";
+      acquisitionSourceConfidence = payload.placement ? "Verified" : "Inferred";
+      if (!payload.placement) placement = "Facebook (Unverified Placement)";
+    } else {
+      // Platform cannot be verified from payload alone (common under Advantage+ Automatic Placements)
+      detectedSourceType = "Meta Lead Ads";
+      detectedUtmSource = "meta";
+      placement = "UNKNOWN";
+      acquisitionSourceConfidence = "Unverified";
+    }
+
     // 3. Construct RawEnquiryInput for existing Lead Ingestion Pipeline
     const rawEnquiry: RawEnquiryInput = {
-      sourceType: "Facebook Lead Ads",
-      sourceName: "Meta Instant Form",
+      sourceType: detectedSourceType,
+      sourceName: detectedSourceType === "Instagram Lead Ads" ? "Instagram Instant Form" : "Meta Instant Form",
       sourceReferenceId: payload.leadgenId,
       fullName,
       phone,
       email,
       preferredLocation: location,
-      preferredState: "Penang",
+      preferredState: fieldMap["state"] || fieldMap["preferred_state"] || "Penang",
       propertyType,
       budgetMax: budgetMax > 0 ? budgetMax : 750000,
       purchasePurpose: fieldMap["purpose"] || "Own Stay",
       buyingTimeline: fieldMap["timeline"] || "Within 3 months",
-      campaignId: payload.campaignId || "meta-campaign-pilot-001",
-      referralSource: `Meta Leadgen Form ID: ${payload.formId}`,
-      utmSource: "facebook",
+      campaignId: payload.campaignId || "meta_test_campaign",
+      referralSource: payload.referralSource || `Meta Leadgen Form ID: ${payload.formId}`,
+      utmSource: detectedUtmSource,
       utmMedium: "paid_lead_ad",
-      utmCampaign: payload.campaignName || "penang_landed_pilot",
+      utmCampaign: payload.campaignName || "meta_instant_form_lead",
       enquiryConsentGranted: true, // User submitted explicit instant form
       marketingConsentGranted: false, // Does not grant unrestricted broad marketing
-      consentEvidence: `Meta Instant Form Submission (Leadgen ID: ${payload.leadgenId}) at ${new Date(payload.createdTime * 1000).toISOString()}`,
-      contactEligibility: "Eligible"
+      consentEvidence: `Meta Instant Form Submission (${detectedSourceType}, Leadgen ID: ${payload.leadgenId}, Placement: ${placement}) at ${new Date(payload.createdTime * 1000).toISOString()}`,
+      contactEligibility: "Eligible",
+      rawMetadata: {
+        ...(payload.rawMetadata || {}),
+        leadgenId: payload.leadgenId,
+        formId: payload.formId,
+        pageId: payload.pageId,
+        adId: payload.adId || null,
+        campaignId: payload.campaignId || null,
+        placement,
+        acquisitionSourceConfidence,
+        dataSource: resolvedDataSource,
+        originalWebhookTimestamp: payload.createdTime
+      }
     };
 
     // 4. Ingest through 6-stage Lead Ingestion Pipeline
@@ -439,8 +1113,13 @@ export class MetaAdsService {
       ownerId,
       formId: payload.formId,
       campaignId: payload.campaignId,
+      adId: payload.adId || null,
+      placement,
+      acquisitionSourceConfidence,
+      dataSource: resolvedDataSource,
       enquiryId: ingestionResult.enquiryId,
       prospectId: ingestionResult.prospectId,
+      rawMetadata: rawEnquiry.rawMetadata,
       ingestedAt: new Date().toISOString()
     });
 
@@ -616,6 +1295,7 @@ Return valid JSON with the following schema:
         campaignName: "Eco Horizon Astonia Townhome — Batu Kawan Launch",
         status: "ACTIVE",
         objective: "OUTCOME_LEADS",
+        dataSource: "MOCK_SIMULATED",
         dailyBudget: 50.0,
         spend: 780.0,
         impressions: 24500,
@@ -683,6 +1363,7 @@ Return valid JSON with the following schema:
         campaignName: "Malik Tan — IQI Northern Region Top Agent Branding",
         status: "ACTIVE",
         objective: "OUTCOME_TRAFFIC",
+        dataSource: "MOCK_SIMULATED",
         dailyBudget: 25.0,
         spend: 340.0,
         impressions: 16800,

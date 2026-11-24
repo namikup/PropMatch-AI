@@ -5,6 +5,8 @@ class MetaConnectionModel {
   final String adAccountId;
   final String adAccountName;
   final String currency;
+  final String? timezone;
+  final String dataSource;
   final bool isConnected;
   final String connectionStatus; // 'Connected', 'Disconnected', 'Reauthorization Required', 'Error'
   final List<String> grantedPermissions;
@@ -23,14 +25,19 @@ class MetaConnectionModel {
     this.adAccountId = '',
     this.adAccountName = '',
     this.currency = 'MYR',
+    this.timezone = 'Asia/Kuala_Lumpur',
+    this.dataSource = 'REAL_META_API',
     this.isConnected = false,
     this.connectionStatus = 'Disconnected',
     this.grantedPermissions = const [],
     this.missingPermissions = const [
       'ads_read',
+      'ads_management',
       'leads_retrieval',
+      'pages_manage_metadata',
+      'pages_manage_ads',
       'pages_read_engagement',
-      'pages_manage_ads'
+      'pages_show_list',
     ],
     this.lastSyncAt,
     this.lastSyncError,
@@ -55,6 +62,8 @@ class MetaConnectionModel {
       adAccountId: map['adAccountId'] as String? ?? '',
       adAccountName: map['adAccountName'] as String? ?? '',
       currency: map['currency'] as String? ?? 'MYR',
+      timezone: map['timezone'] as String? ?? 'Asia/Kuala_Lumpur',
+      dataSource: map['dataSource'] as String? ?? 'REAL_META_API',
       isConnected: map['isConnected'] as bool? ?? false,
       connectionStatus: map['connectionStatus'] as String? ?? 'Disconnected',
       grantedPermissions: List<String>.from(map['grantedPermissions'] ?? []),
@@ -82,6 +91,8 @@ class MetaConnectionModel {
       'adAccountId': adAccountId,
       'adAccountName': adAccountName,
       'currency': currency,
+      'timezone': timezone,
+      'dataSource': dataSource,
       'isConnected': isConnected,
       'connectionStatus': connectionStatus,
       'grantedPermissions': grantedPermissions,

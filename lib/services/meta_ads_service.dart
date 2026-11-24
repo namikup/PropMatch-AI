@@ -84,8 +84,10 @@ class MetaAdsService {
       grantedPermissions: const [
         'ads_read',
         'leads_retrieval',
+        'pages_manage_metadata',
+        'pages_manage_ads',
         'pages_read_engagement',
-        'pages_manage_ads'
+        'pages_show_list',
       ],
       missingPermissions: const [],
       tokenExpiresAt: DateTime.now().add(const Duration(days: 60)),
@@ -205,8 +207,10 @@ class MetaAdsService {
       grantedPermissions: const [
         'ads_read',
         'leads_retrieval',
+        'pages_manage_metadata',
+        'pages_manage_ads',
         'pages_read_engagement',
-        'pages_manage_ads'
+        'pages_show_list',
       ],
       missingPermissions: const [],
       tokenExpiresAt: DateTime.now().add(const Duration(days: 48)),

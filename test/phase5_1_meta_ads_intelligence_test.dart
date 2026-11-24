@@ -41,6 +41,7 @@ void main() {
       final initialConn = MetaConnectionModel.initial(pilotOwnerId);
       expect(initialConn.isConnected, isFalse);
       expect(initialConn.missingPermissions, contains('ads_read'));
+      expect(initialConn.missingPermissions, contains('ads_management'));
       expect(initialConn.missingPermissions, contains('leads_retrieval'));
 
       final connectedConn = MetaConnectionModel(
@@ -54,9 +55,12 @@ void main() {
         connectionStatus: 'Connected',
         grantedPermissions: const [
           'ads_read',
+          'ads_management',
           'leads_retrieval',
+          'pages_manage_metadata',
+          'pages_manage_ads',
           'pages_read_engagement',
-          'pages_manage_ads'
+          'pages_show_list',
         ],
         missingPermissions: const [],
         updatedAt: DateTime.now(),
@@ -68,7 +72,7 @@ void main() {
       expect(revived.isConnected, isTrue);
       expect(revived.adAccountId, equals('act_492019482910'));
       expect(revived.currency, equals('MYR'));
-      expect(revived.grantedPermissions.length, equals(4));
+      expect(revived.grantedPermissions.length, equals(7));
       expect(revived.missingPermissions.isEmpty, isTrue);
     });
 

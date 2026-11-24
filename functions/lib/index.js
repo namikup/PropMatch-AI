@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.metaWebhookHandler = exports.generateMetaCampaignAIIntelligence = exports.getMetaCampaigns = exports.syncMetaCampaigns = exports.disconnectMetaAccount = exports.connectMetaAccount = exports.getMetaConnectionStatus = exports.distributePlatformLead = exports.updateIncomingEnquiryStatus = exports.getIncomingEnquiries = exports.ingestLeadEnquiry = exports.importProspectsBatch = exports.getAudienceSegments = exports.getPropertyAnalysis = exports.getAIUsageStats = exports.generateMarketingContent = exports.getMatches = exports.matchBuyers = exports.discoverAudienceSegments = exports.analyzeProperty = exports.metaWebhookVerifyToken = exports.metaAppSecret = exports.geminiApiKey = void 0;
+exports.metaWebhookHandler = exports.syncMetaFormLeads = exports.listMetaAssets = exports.generateMetaCampaignAIIntelligence = exports.getMetaCampaigns = exports.syncMetaCampaigns = exports.disconnectMetaAccount = exports.connectMetaAccount = exports.getMetaConnectionStatus = exports.distributePlatformLead = exports.updateIncomingEnquiryStatus = exports.getIncomingEnquiries = exports.ingestLeadEnquiry = exports.importProspectsBatch = exports.getAudienceSegments = exports.getPropertyAnalysis = exports.getAIUsageStats = exports.generateMarketingContent = exports.getMatches = exports.matchBuyers = exports.discoverAudienceSegments = exports.analyzeProperty = exports.metaWebhookVerifyToken = exports.metaAppSecret = exports.geminiApiKey = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
 const ai_request_validator_1 = require("./validators/ai_request_validator");
@@ -864,6 +864,52 @@ exports.generateMetaCampaignAIIntelligence = (0, https_1.onCall)(callOptions, as
     }
 });
 /**
+ * Callable Function: List Meta Managed Assets (Phase 5.1A Meta Live Assets)
+ */
+exports.listMetaAssets = (0, https_1.onCall)(callOptions, async (request) => {
+    const callerUid = ai_request_validator_1.AIRequestValidator.validateAuth(request.auth?.uid);
+    try {
+        const data = await meta_ads_service_1.MetaAdsService.listAssets(callerUid);
+        return { success: true, data };
+    }
+    catch (err) {
+        if (err instanceof https_1.HttpsError)
+            throw err;
+        throw error_handler_1.ErrorHandler.handle(err, "listMetaAssets", { ownerId: callerUid });
+    }
+});
+/**
+ * Callable Function: Bulk Sync Meta Form Leads (Phase 5.1A.3 Bulk Retrieval)
+ * Queries /{form_id}/leads with pagination and date filtering, backfilling missed leads.
+ */
+exports.syncMetaFormLeads = (0, https_1.onCall)(callOptions, async (request) => {
+    const callerUid = ai_request_validator_1.AIRequestValidator.validateAuth(request.auth?.uid);
+    const formId = request.data?.formId;
+    const pageId = request.data?.pageId;
+    const sinceTimestamp = typeof request.data?.sinceTimestamp === "number" ? request.data.sinceTimestamp : undefined;
+    if (!formId || typeof formId !== "string") {
+        throw new https_1.HttpsError("invalid-argument", "Missing required formId.");
+    }
+    try {
+        const credDoc = await firebase_config_1.collections.privateMetaCredentials.doc(callerUid).get();
+        if (!credDoc.exists) {
+            throw new https_1.HttpsError("failed-precondition", "Meta account is not connected.");
+        }
+        const creds = credDoc.data();
+        const pageToken = (pageId && creds?.pageAccessTokens?.[pageId]) || creds?.accessToken;
+        if (!pageToken) {
+            throw new https_1.HttpsError("failed-precondition", "No valid access token available for Page.");
+        }
+        const result = await meta_ads_service_1.MetaAdsService.syncFormLeads(callerUid, formId, pageToken, { sinceTimestamp });
+        return { success: true, data: result };
+    }
+    catch (err) {
+        if (err instanceof https_1.HttpsError)
+            throw err;
+        throw error_handler_1.ErrorHandler.handle(err, "syncMetaFormLeads", { ownerId: callerUid });
+    }
+});
+/**
  * HTTP Webhook Handler: Meta Webhook for Lead Ads (Phase 5.1 Meta Ads Intelligence)
  * Supports GET subscription verification and POST leadgen event reception with HMAC verification.
  */
@@ -880,7 +926,9 @@ exports.metaWebhookHandler = (0, https_1.onRequest)({ region: "asia-southeast1",
             return;
         }
         else {
-            logger_1.Logger.warn("Meta Webhook verification failed: invalid token", { receivedToken: token });
+            logger_1.Logger.warn("Meta Webhook verification failed: invalid token", {
+                receivedLength: typeof token === "string" ? token.length : 0
+            });
             res.status(403).send("Forbidden: Invalid verification token");
             return;
         }
@@ -914,9 +962,70 @@ exports.metaWebhookHandler = (0, https_1.onRequest)({ region: "asia-southeast1",
                                 .where("facebookPageId", "==", pageId)
                                 .limit(1)
                                 .get();
-                            const ownerId = pageOwnerSnap.empty
-                                ? "pilot-agent-malik-001" // Default to designated pilot agent in pilot mode
-                                : pageOwnerSnap.docs[0].id;
+                            let ownerId = "";
+                            if (!pageOwnerSnap.empty) {
+                                ownerId = pageOwnerSnap.docs[0].id;
+                            }
+                            else if (process.env.TEST_AGENT_ID) {
+                                // Fall back to explicitly configured local test agent in emulator testing
+                                ownerId = process.env.TEST_AGENT_ID;
+                            }
+                            else {
+                                logger_1.Logger.warn("Meta Webhook: Unmapped Facebook Page ID; no matching agent connection found in meta_connections", {
+                                    pageId,
+                                    leadgenId
+                                });
+                                continue; // Reject unmapped Pages to prevent accidental cross-agent attribution
+                            }
+                            let fieldData = leadData.field_data || [];
+                            let leadDataSource = 'REAL_META_API';
+                            let fetchFailed = false;
+                            let fetchErrorMessage = "";
+                            if (fieldData.length === 0) {
+                                try {
+                                    const credDoc = await firebase_config_1.collections.privateMetaCredentials.doc(ownerId).get();
+                                    if (credDoc.exists) {
+                                        const creds = credDoc.data();
+                                        const pageToken = creds?.pageAccessTokens?.[pageId] || creds?.accessToken;
+                                        if (pageToken && !pageToken.includes("SECRET_ACCESS_TOKEN")) {
+                                            const liveLead = await meta_ads_service_1.MetaAdsService.fetchLeadDetailsFromGraphApi(leadgenId, pageToken);
+                                            fieldData = liveLead.fieldData;
+                                            leadDataSource = liveLead.dataSource || 'REAL_META_API';
+                                        }
+                                        else {
+                                            leadDataSource = pageToken?.includes("SECRET_ACCESS_TOKEN") ? 'MOCK_SIMULATED' : 'NOT_CONNECTED';
+                                        }
+                                    }
+                                    else {
+                                        leadDataSource = 'NOT_CONNECTED';
+                                    }
+                                }
+                                catch (fetchErr) {
+                                    fetchFailed = true;
+                                    fetchErrorMessage = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+                                    logger_1.Logger.error("Graph API lead fetch failed due to permission or authorization error", fetchErr, { leadgenId, ownerId });
+                                }
+                            }
+                            // If lead retrieval failed or no answers could be retrieved, do NOT create fake successful leads
+                            if (fetchFailed || (fieldData.length === 0 && leadDataSource === 'NOT_CONNECTED')) {
+                                logger_1.Logger.warn("Suppressing lead prospect creation due to failed Meta authorization or missing credentials", {
+                                    leadgenId,
+                                    ownerId,
+                                    error: fetchErrorMessage
+                                });
+                                await firebase_config_1.collections.metaSyncLogs.add({
+                                    ownerId,
+                                    leadgenId,
+                                    status: "Authorization Failed",
+                                    error: fetchErrorMessage || "Meta access token invalid, expired, or missing required permissions",
+                                    timestamp: new Date().toISOString()
+                                });
+                                await firebase_config_1.collections.metaConnections.doc(ownerId).update({
+                                    lastSyncError: fetchErrorMessage || "Failed to retrieve lead questionnaire data from Meta Graph API",
+                                    connectionStatus: "Reauthorization Required"
+                                });
+                                continue;
+                            }
                             await meta_ads_service_1.MetaAdsService.ingestMetaLead(ownerId, {
                                 leadgenId,
                                 formId,
@@ -924,7 +1033,14 @@ exports.metaWebhookHandler = (0, https_1.onRequest)({ region: "asia-southeast1",
                                 adId,
                                 campaignId,
                                 createdTime,
-                                fieldData: leadData.field_data || []
+                                fieldData,
+                                dataSource: leadDataSource,
+                                rawMetadata: {
+                                    webhookEntryId: entry.id,
+                                    webhookTime: entry.time,
+                                    webhookField: change.field,
+                                    rawLeadData: leadData
+                                }
                             });
                         }
                     }

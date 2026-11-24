@@ -128,6 +128,7 @@ class MetaCampaignModel {
   final double costPerLead;
   final String dateStart;
   final String dateStop;
+  final String dataSource;
   final MetaBuyerQualityModel qualityMetrics;
   final List<MetaAdSetModel> adSets;
   final List<MetaAdModel> ads;
@@ -153,6 +154,7 @@ class MetaCampaignModel {
     required this.costPerLead,
     required this.dateStart,
     required this.dateStop,
+    this.dataSource = 'REAL_META_API',
     required this.qualityMetrics,
     this.adSets = const [],
     this.ads = const [],
@@ -180,6 +182,7 @@ class MetaCampaignModel {
       costPerLead: (map['costPerLead'] as num?)?.toDouble() ?? 0.0,
       dateStart: map['dateStart'] as String? ?? '',
       dateStop: map['dateStop'] as String? ?? '',
+      dataSource: map['dataSource'] as String? ?? 'REAL_META_API',
       qualityMetrics: map['qualityMetrics'] != null
           ? MetaBuyerQualityModel.fromMap(Map<String, dynamic>.from(map['qualityMetrics']))
           : const MetaBuyerQualityModel(
@@ -226,6 +229,7 @@ class MetaCampaignModel {
       'costPerLead': costPerLead,
       'dateStart': dateStart,
       'dateStop': dateStop,
+      'dataSource': dataSource,
       'qualityMetrics': qualityMetrics.toMap(),
       'adSets': adSets.map((e) => e.toMap()).toList(),
       'ads': ads.map((e) => e.toMap()).toList(),

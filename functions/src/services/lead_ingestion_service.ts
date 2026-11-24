@@ -125,7 +125,9 @@ export class LeadIngestionService {
       "Developer",
       "Direct Website",
       "CRM Import",
-      "Facebook Lead Ads"
+      "Facebook Lead Ads",
+      "Instagram Lead Ads",
+      "Meta Lead Ads"
     ]);
 
     if (!input.sourceType || !validSources.has(input.sourceType)) {
@@ -390,12 +392,17 @@ export class LeadIngestionService {
       primarySource: input.sourceType,
       primarySourceId: input.sourceReferenceId || null,
       confidenceScore: contactEligibility === "Eligible" ? 85.0 : 70.0,
+      campaignId: input.campaignId || null,
+      placement: (input.rawMetadata as any)?.placement || "UNKNOWN",
+      acquisitionSourceConfidence: (input.rawMetadata as any)?.acquisitionSourceConfidence || "Unverified",
+      rawMetadata: input.rawMetadata || {},
       notes: input.notes || "",
       isDemo: Boolean(input.isDemo),
       tags: [
         "Incoming Lead",
         input.sourceType,
         ...(input.campaignId ? [`Campaign: ${input.campaignId}`] : []),
+        ...((input.rawMetadata as any)?.placement && (input.rawMetadata as any).placement !== "UNKNOWN" ? [`Placement: ${(input.rawMetadata as any).placement}`] : []),
         ...(input.acquisitionChannel === "Channel A: Agent-Generated" || input.sourceType === "Direct Website"
           ? ["Channel A: Personal Landing Page"]
           : ["Channel B: Platform Distribution"])
